@@ -628,6 +628,17 @@ else
         "")       SECURE_COOKIES=0 ;;
     esac
 
+    # a second instance on this box gets its own image tag and clamav name. sharing npm-repo:latest would let
+    # an upgrade of one retag what the other restarts from, and two containers can't both be called clamav
+    [[ "$CONTAINER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$ ]] \
+        || die "--name has to be a plain container name: letters, numbers, dot, dash or underscore"
+    NEW_IMAGE_TAG=latest
+    NEW_CLAMAV_NAME=clamav
+    if [ "$CONTAINER_NAME" != "npm-repo" ]; then
+        NEW_IMAGE_TAG="$CONTAINER_NAME"
+        NEW_CLAMAV_NAME="${CONTAINER_NAME}-clamav"
+    fi
+
     cat > .env <<ENVFILE
 # npm-repo settings for this server, written by setup.sh on $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 # Keep this file private. It holds the first admin password.
@@ -651,7 +662,8 @@ UPSTREAM_REGISTRY=https://registry.npmjs.org
 UPSTREAM_TOKEN=
 
 CONTAINER_NAME=${CONTAINER_NAME}
-IMAGE_TAG=latest
+IMAGE_TAG=${NEW_IMAGE_TAG}
+CLAMAV_CONTAINER_NAME=${NEW_CLAMAV_NAME}
 TZ=UTC
 SESSION_HOURS=12
 ENVFILE

@@ -62,7 +62,7 @@ Options, all optional:
 | `--url https://npm.example.com` | the address developers will use |
 | `--dir /opt/forgerepo` | install somewhere other than `/data/docker/forgerepo` |
 | `--port 4444` | host port to publish on |
-| `--name npm-repo` | container name, change it to run two on one box |
+| `--name npm-repo` | container name, see "Running more than one" before putting two on one box |
 | `--no-start` | set it all up but do not start it |
 | `--upgrade` | pull the latest code, rebuild the image, restart |
 
@@ -294,6 +294,32 @@ username and password takes them in the registry's token field as
 PyPI is files.pythonhosted.org, but a file on a host other than the registry's
 own has to be on a public address: an index page cannot send the box to
 something on your internal network.
+
+### Running more than one
+
+Some teams run a separate ForgeRepo per kind of package, say one for npm and
+one for PyPI and container images. The recommended way is one per server: each
+gets its own disk, memory, ClamAV and upgrade schedule, and nothing on one can
+get in the way of another. Install each one with the usual command.
+
+If they have to share a server, give each its own folder, container name and
+port:
+
+```bash
+sudo bash setup.sh --url https://npm.example.com \
+  --dir /data/docker/forgerepo-npm --name forgerepo-npm --port 4444
+sudo bash setup.sh --url https://pypi.example.com \
+  --dir /data/docker/forgerepo-pypi --name forgerepo-pypi --port 4445
+```
+
+The folder keeps their data apart. With a name other than the default,
+`setup.sh` also gives the instance its own image tag and ClamAV container name,
+so upgrading one never retags what another restarts from and both can run
+ClamAV. By hand, set `CONTAINER_NAME`, `HOST_PORT`, `IMAGE_TAG` and
+`CLAMAV_CONTAINER_NAME` to something unique in each `.env`. Each ClamAV takes
+2 to 3GB of memory, which is the main cost of sharing a server. Upgrade each
+one from its own folder with `sudo ./setup.sh --upgrade`, and put your reverse
+proxy in front of both, one hostname each.
 
 ### Installing it on another server
 
