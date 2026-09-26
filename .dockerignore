@@ -1,0 +1,44 @@
+# The image only needs app/ and docker/. Everything else stays out of the build context,
+# the data directory and its database backups most of all.
+
+# local settings and secrets
+.env
+.env.*
+
+# the database, the package cache, backups
+data/
+
+# history and editor state
+.git
+.gitignore
+.DS_Store
+npm-debug.log
+
+# docs stay out of the image, the README ships
+*.md
+!README.md
+.idea
+.vscode
+*.swp
+
+# local test suites and fixtures, never shipped
+app/test/
+
+# dependencies are installed fresh inside the build
+node_modules/
+**/node_modules/
+
+# lint and type tooling, dev only
+app/eslint.config.js
+app/tsconfig.json
+
+# exports, reports and one-off scripts that live next to the repo
+*.csv
+*.docx
+*.sqlite
+audit_export.*
+/package.json
+/package-lock.json
+
+# server specific proxy config
+nginx/local/

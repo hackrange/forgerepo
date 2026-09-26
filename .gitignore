@@ -1,0 +1,42 @@
+# Local settings, one per server. Never commit this, it holds passwords.
+.env
+
+# The database, the tarball cache and anything else that persists.
+data/
+*.sqlite
+
+# Vhosts for one particular server. The generic template ships, these do not.
+nginx/local/
+
+# Node
+node_modules/
+npm-debug.log*
+.npm
+
+# Editors and the usual junk
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+
+# Dumps and scratch
+*.sql.gz
+*.tar.gz
+backups/
+
+# SBOM input and the break list built from it. Both name private repositories
+# and projects, so they stay on the machine that generated them.
+sbom_*.csv
+broken.csv
+
+# Review output, same reason: it lists what one particular install
+# depends on.
+results-*.csv
+
+# Exported documents. They carry one site's names and addresses, so they
+# stay out of the repository.
+*.docx
+
+# Local test suites and fixtures. Not part of the published tree.
+app/test/

@@ -1,0 +1,524 @@
+{
+ "sign-in": {
+  "file": "sign-in.webp",
+  "w": 432,
+  "h": 385,
+  "alt": "The sign in page",
+  "marks": [
+   {
+    "x": 49,
+    "y": 148,
+    "w": 334,
+    "h": 50,
+    "label": "Your user name"
+   },
+   {
+    "x": 49,
+    "y": 231,
+    "w": 334,
+    "h": 50,
+    "label": "Your password"
+   }
+  ]
+ },
+ "portal-tour-developer": {
+  "file": "portal-tour-developer.webp",
+  "w": 1366,
+  "h": 860,
+  "alt": "The portal as a developer sees it",
+  "marks": [
+   {
+    "x": -4,
+    "y": 98,
+    "w": 247,
+    "h": 46,
+    "label": "Documentation, written for your account"
+   },
+   {
+    "x": -4,
+    "y": 556,
+    "w": 247,
+    "h": 46,
+    "label": "Requests, to ask for a package or image"
+   },
+   {
+    "x": -4,
+    "y": 632,
+    "w": 247,
+    "h": 46,
+    "label": "Check a package, to see what the rules say before you install"
+   },
+   {
+    "x": -4,
+    "y": 709,
+    "w": 247,
+    "h": 46,
+    "label": "Tokens, for your tools and pipelines"
+   },
+   {
+    "x": 1065,
+    "y": 12,
+    "w": 214,
+    "h": 33,
+    "label": "Your account and your role"
+   }
+  ]
+ },
+ "account-password": {
+  "file": "account-password.webp",
+  "w": 1094,
+  "h": 409,
+  "alt": "Changing your password",
+  "marks": [
+   {
+    "x": 27,
+    "y": 58,
+    "w": 1041,
+    "h": 30,
+    "label": "Type the password you have now"
+   },
+   {
+    "x": 27,
+    "y": 139,
+    "w": 1041,
+    "h": 30,
+    "label": "Then the new one, twice"
+   }
+  ]
+ },
+ "token-new": {
+  "file": "token-new.webp",
+  "w": 1094,
+  "h": 413,
+  "alt": "The New token form",
+  "marks": [
+   {
+    "x": 27,
+    "y": 58,
+    "w": 248,
+    "h": 30,
+    "label": "A name that says where the token is used"
+   },
+   {
+    "x": 283,
+    "y": 58,
+    "w": 248,
+    "h": 30,
+    "label": "How long it lasts"
+   },
+   {
+    "x": 27,
+    "y": 342,
+    "w": 105,
+    "h": 44,
+    "label": "Make the token"
+   }
+  ]
+ },
+ "token-list": {
+  "file": "token-list.webp",
+  "w": 1102,
+  "h": 860,
+  "alt": "Your tokens",
+  "marks": [
+   {
+    "x": 1022,
+    "y": 60,
+    "w": 55,
+    "h": 28,
+    "label": "Revoke a token you no longer use, or think was exposed"
+   }
+  ]
+ },
+ "request-image": {
+  "file": "request-image.webp",
+  "w": 1094,
+  "h": 251,
+  "alt": "Asking for a container image",
+  "marks": [
+   {
+    "x": 27,
+    "y": 85,
+    "w": 248,
+    "h": 50,
+    "label": "Pick the kind: npm, PyPI or images"
+   },
+   {
+    "x": 283,
+    "y": 58,
+    "w": 248,
+    "h": 30,
+    "label": "The name, as you would install or pull it"
+   },
+   {
+    "x": 539,
+    "y": 58,
+    "w": 248,
+    "h": 30,
+    "label": "A version, tag or range, or leave it empty for all"
+   },
+   {
+    "x": 539,
+    "y": 178,
+    "w": 85,
+    "h": 44,
+    "label": "Send the request"
+   }
+  ]
+ },
+ "request-list": {
+  "file": "request-list.webp",
+  "w": 1102,
+  "h": 700,
+  "alt": "Your requests and their status",
+  "marks": [
+   {
+    "x": 759,
+    "y": 85,
+    "w": 112,
+    "h": 27,
+    "label": "What the malware scan and advisory check found"
+   }
+  ]
+ },
+ "check-package": {
+  "file": "check-package.webp",
+  "w": 1094,
+  "h": 424,
+  "alt": "Checking a package before you install it",
+  "marks": [
+   {
+    "x": 27,
+    "y": 219,
+    "w": 92,
+    "h": 44,
+    "label": "Check what the rules say about this exact version"
+   }
+  ]
+ },
+ "dependency-tree-npm": {
+  "file": "dependency-tree-npm.webp",
+  "w": 1094,
+  "h": 1200,
+  "alt": "The dependency tree of an npm package",
+  "marks": [
+   {
+    "x": 27,
+    "y": 237,
+    "w": 129,
+    "h": 44,
+    "label": "Walk everything the package pulls in"
+   }
+  ]
+ },
+ "token-made": {
+  "file": "token-made.webp",
+  "w": 1094,
+  "h": 891,
+  "alt": "A new token and the setup commands for it",
+  "marks": [
+   {
+    "x": 8,
+    "y": 417,
+    "w": 1078,
+    "h": 57,
+    "label": "The token is shown once. Copy it now"
+   },
+   {
+    "x": 8,
+    "y": 583,
+    "w": 1078,
+    "h": 76,
+    "label": "Paste these to set up npm"
+   },
+   {
+    "x": 8,
+    "y": 807,
+    "w": 1078,
+    "h": 76,
+    "label": "Or log docker in with it"
+   }
+  ]
+ },
+ "dependency-tree-image": {
+  "file": "dependency-tree-image.webp",
+  "w": 1094,
+  "h": 1100,
+  "alt": "The tree of a container image: platforms, layers and packages inside",
+  "marks": [
+   {
+    "x": 27,
+    "y": 184,
+    "w": 248,
+    "h": 50,
+    "label": "Pick images to walk an image"
+   }
+  ]
+ },
+ "review-file": {
+  "file": "review-file.webp",
+  "w": 1094,
+  "h": 1300,
+  "alt": "Reviewing a package-lock.json",
+  "marks": [
+   {
+    "x": 27,
+    "y": 392,
+    "w": 98,
+    "h": 44,
+    "label": "Pick your lockfile, then review it"
+   }
+  ]
+ },
+ "vulnerabilities-images": {
+  "file": "vulnerabilities-images.webp",
+  "w": 1366,
+  "h": 860,
+  "alt": "Vulnerabilities found inside container images",
+  "marks": []
+ },
+ "waiver-ask": {
+  "file": "waiver-ask.webp",
+  "w": 1094,
+  "h": 652,
+  "alt": "Asking for a waiver",
+  "marks": [
+   {
+    "x": 27,
+    "y": 58,
+    "w": 248,
+    "h": 30,
+    "label": "What to waive"
+   },
+   {
+    "x": 27,
+    "y": 421,
+    "w": 1041,
+    "h": 30,
+    "label": "Why it is safe for now"
+   },
+   {
+    "x": 27,
+    "y": 582,
+    "w": 98,
+    "h": 44,
+    "label": "Send it to the people who decide"
+   }
+  ]
+ },
+ "approver-requests": {
+  "file": "approver-requests.webp",
+  "w": 1680,
+  "h": 860,
+  "alt": "Requests waiting for a decision",
+  "marks": []
+ },
+ "admin-dashboard": {
+  "file": "admin-dashboard.webp",
+  "w": 960,
+  "h": 1300,
+  "alt": "The dashboard",
+  "marks": [
+   {
+    "x": 36,
+    "y": 131,
+    "w": 131,
+    "h": 32,
+    "label": "Registry mode: normal, degraded or lockdown"
+   }
+  ]
+ },
+ "admin-settings-policy": {
+  "file": "admin-settings-policy.webp",
+  "w": 928,
+  "h": 1400,
+  "alt": "Settings, Policy tab",
+  "marks": [
+   {
+    "x": 27,
+    "y": 58,
+    "w": 875,
+    "h": 30,
+    "label": "Whitelist or blacklist"
+   },
+   {
+    "x": 27,
+    "y": 164,
+    "w": 875,
+    "h": 31,
+    "label": "Serve everything and record what would be blocked"
+   }
+  ]
+ },
+ "admin-settings-registries": {
+  "file": "admin-settings-registries.webp",
+  "w": 928,
+  "h": 1600,
+  "alt": "Settings, Registries tab",
+  "marks": []
+ },
+ "admin-rules": {
+  "file": "admin-rules.webp",
+  "w": 928,
+  "h": 700,
+  "alt": "The Rules page",
+  "marks": [
+   {
+    "x": 283,
+    "y": 143,
+    "w": 248,
+    "h": 30,
+    "label": "Higher priority wins first"
+   },
+   {
+    "x": 27,
+    "y": 224,
+    "w": 248,
+    "h": 30,
+    "label": "Scope a rule to the tokens of one application or environment"
+   }
+  ]
+ },
+ "admin-rules-list": {
+  "file": "admin-rules-list.webp",
+  "w": 1129,
+  "h": 900,
+  "alt": "Rules and their cache and advisory state",
+  "marks": []
+ },
+ "admin-vulnerabilities": {
+  "file": "admin-vulnerabilities.webp",
+  "w": 928,
+  "h": 1100,
+  "alt": "Vulnerabilities, including container images",
+  "marks": []
+ },
+ "admin-waivers": {
+  "file": "admin-waivers.webp",
+  "w": 960,
+  "h": 1272,
+  "alt": "Waivers waiting and in effect",
+  "marks": []
+ },
+ "admin-quarantine": {
+  "file": "admin-quarantine.webp",
+  "w": 960,
+  "h": 1300,
+  "alt": "Quarantine",
+  "marks": []
+ },
+ "admin-dryrun": {
+  "file": "admin-dryrun.webp",
+  "w": 928,
+  "h": 1200,
+  "alt": "A dry run of a new deny rule",
+  "marks": []
+ },
+ "admin-consumers": {
+  "file": "admin-consumers.webp",
+  "w": 928,
+  "h": 904,
+  "alt": "Who consumes a package",
+  "marks": []
+ },
+ "admin-traffic": {
+  "file": "admin-traffic.webp",
+  "w": 960,
+  "h": 1300,
+  "alt": "The traffic log",
+  "marks": []
+ },
+ "admin-users": {
+  "file": "admin-users.webp",
+  "w": 960,
+  "h": 1300,
+  "alt": "Users and roles",
+  "marks": []
+ },
+ "admin-whitelists": {
+  "file": "admin-whitelists.webp",
+  "w": 960,
+  "h": 1300,
+  "alt": "The portal network allow list and break glass keys",
+  "marks": []
+ },
+ "admin-integrations": {
+  "file": "admin-integrations.webp",
+  "w": 960,
+  "h": 869,
+  "alt": "A signed SIEM webhook",
+  "marks": []
+ },
+ "admin-audit": {
+  "file": "admin-audit.webp",
+  "w": 960,
+  "h": 1300,
+  "alt": "The audit trail",
+  "marks": []
+ },
+ "admin-transfer": {
+  "file": "admin-transfer.webp",
+  "w": 960,
+  "h": 1221,
+  "alt": "Import and export",
+  "marks": []
+ },
+ "admin-killswitch": {
+  "file": "admin-killswitch.webp",
+  "w": 960,
+  "h": 1300,
+  "alt": "The kill switch with an active kill",
+  "marks": [
+   {
+    "x": 36,
+    "y": 182,
+    "w": 130,
+    "h": 32,
+    "label": "What to kill: a package, one file by sha256, or an advisory"
+   },
+   {
+    "x": 823,
+    "y": 1220,
+    "w": 98,
+    "h": 31,
+    "label": "Everyone who downloaded it in the last 30 days"
+   }
+  ]
+ },
+ "admin-reserved-names": {
+  "file": "admin-reserved-names.webp",
+  "w": 928,
+  "h": 504,
+  "alt": "Reserved names for npm, PyPI and Docker",
+  "marks": [
+   {
+    "x": 62,
+    "y": 240,
+    "w": 56,
+    "h": 29,
+    "label": "Images under acme/ are pushed here and never pulled from outside"
+   },
+   {
+    "x": 27,
+    "y": 434,
+    "w": 92,
+    "h": 44,
+    "label": "Pick Docker and add a namespace like acme/*"
+   }
+  ]
+ },
+ "admin-artifacts-pushed": {
+  "file": "admin-artifacts-pushed.webp",
+  "w": 1346,
+  "h": 900,
+  "alt": "The layers of a pushed image in Artifacts",
+  "marks": []
+ },
+ "admin-nuget-rules": {
+  "file": "admin-nuget-rules.webp",
+  "w": 1285,
+  "h": 354,
+  "alt": "NuGet rules",
+  "marks": []
+ }
+}

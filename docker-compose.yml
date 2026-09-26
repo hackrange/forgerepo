@@ -1,0 +1,93 @@
+# ForgeRepo
+# Author: Tim Rice
+#
+# settings live in .env (copy .env.example). defaults are for kicking the tires only
+
+services:
+  npm-repo:
+    build: .
+    image: npm-repo:${IMAGE_TAG:-latest}
+    container_name: ${CONTAINER_NAME:-npm-repo}
+    restart: unless-stopped
+
+    # time for the db to shut down cleanly, docker's 10s default then kills it rudely
+    stop_grace_period: 2m
+
+    # app port only. the built in db is socket-only, no tcp listener
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-4444}:4444"
+
+    #bare name = named volume, ./path = host dir
+    volumes:
+      - ${DATA_PATH:-npm-repo-data}:/data
+
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # names this box in utilization history, so it doesn't change every time the container is recreated
+      NODE_NAME: ${NODE_NAME:-${CONTAINER_NAME:-npm-repo}}
+
+      # empty DB_HOST = built in db. set it and nodes can share one server, no turf war
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-npmrepo}
+      DB_USER: ${DB_USER:-npmrepo}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_POOL: ${DB_POOL:-10}
+      DB_SSL: ${DB_SSL:-}
+      DB_SSL_CA: ${DB_SSL_CA:-}
+      DB_SSL_VERIFY: ${DB_SSL_VERIFY:-1}
+
+      MAX_IMPORT_MB: ${MAX_IMPORT_MB:-64}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      UPSTREAM_REGISTRY: ${UPSTREAM_REGISTRY:-https://registry.npmjs.org}
+      UPSTREAM_TOKEN: ${UPSTREAM_TOKEN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      SECURE_COOKIES: ${SECURE_COOKIES:-1}
+      SESSION_HOURS: ${SESSION_HOURS:-12}
+      TZ: ${TZ:-UTC}
+
+    healthcheck:
+      test: ["CMD", "node", "/opt/npmrepo/src/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # optional ClamAV for the malware scanner. only starts with COMPOSE_PROFILES=clamav in .env.
+  # in Settings -> Malware the clamd host is "clamav", port 3310. first start pulls signatures, give it a few minutes
+  clamav:
+    image: clamav/clamav:stable
+    container_name: ${CLAMAV_CONTAINER_NAME:-clamav}
+    profiles: ["clamav"]
+    restart: unless-stopped
+
+    # freshclam runs inside and checks for new signatures this many times a day, clamd reloads on its own.
+    # ClamAV asks for no more than once an hour, so 1-24
+    environment:
+      FRESHCLAM_CHECKS: ${CLAMAV_UPDATE_CHECKS:-12}
+
+    # no ports on purpose. clamd has no auth, ForgeRepo reaches it over the compose network
+    volumes:
+      - clamav-db:/var/lib/clamav
+      # clamd's own defaults refuse anything over 100 MB, and a refused file is never served while
+      # "Scan before serving" is on. this one takes up to 4000M, as far as clamd goes
+      - ./docker/clamd.conf:/etc/clamav/clamd.conf:ro
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# only matters when DATA_PATH is a name
+volumes:
+  npm-repo-data:
+  #signatures, so a restart doesn't download them all again
+  clamav-db:

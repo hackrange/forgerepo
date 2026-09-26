@@ -1,0 +1,127 @@
+# =============================================================================
+# npm-repo - nginx reverse proxy
+# Author: Tim Rice
+#
+# Sits in front of the npm-repo container on 127.0.0.1:4444. That container serves
+# two things on the one port: the npm registry at / and the management portal at
+# /_admin.
+#
+# to use this:
+#   1. swap every npm.example.com below for your own hostname
+#   2. copy it to /etc/nginx/sites-available/ and symlink into sites-enabled/
+#      (on RHEL and friends it's /etc/nginx/conf.d/ and there's no symlink)
+#   3. get a certificate, see the note at the bottom
+#   4. nginx -t && systemctl reload nginx
+# =============================================================================
+
+# A break glass key arrives as /_admin?bgt=<uuid> and we really don't want that
+# uuid living in the access log forever. Swap it out before anything gets written.
+map $request_uri $npmrepo_logged_uri {
+    "~^(?<npmrepo_path>[^?]*)\?.*\bbgt="  "$npmrepo_path?bgt=[redacted]";
+    default                               $request_uri;
+}
+
+log_format npmrepo '$remote_addr - $remote_user [$time_local] '
+                   '"$request_method $npmrepo_logged_uri $server_protocol" '
+                   '$status $body_bytes_sent "$http_referer" "$http_user_agent"';
+
+# HTTP: answer ACME challenges, bounce everything else to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name npm.example.com;
+
+    server_tokens off;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS: proxy to the container.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name npm.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/npm.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/npm.example.com/privkey.pem;
+
+    # certbot drops these in. If you're using your own certificates instead,
+    # delete the two includes and set your own protocols and ciphers.
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    server_tokens off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # npm publish and twine upload fit in this. docker push layers get their own location below
+    client_max_body_size 32m;
+
+    access_log /var/log/nginx/npm-repo.access.log npmrepo;
+    error_log  /var/log/nginx/npm-repo.error.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:4444;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+
+        # Overwrite, DON'T append. The portal has an ip whitelist that reads this
+        # header, so a client must never be able to slip its own value in.
+        # Using $proxy_add_x_forwarded_for here would be a genuine security hole.
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host  $host;
+
+        # a package that isn't cached yet has to be fetched from the public
+        # registry first, so be patient before giving up on it
+        proxy_connect_timeout 15s;
+        proxy_read_timeout   300s;
+        proxy_send_timeout   300s;
+
+        proxy_buffering on;
+        proxy_max_temp_file_size 0;
+    }
+
+    # docker push sends each image layer as one request body, often hundreds of MB. the app takes up to 10 GB a layer
+    # and drops one that stalls for two minutes, so stream it straight through instead of buffering it to disk first
+    location ~ ^/v2/.+/blobs/uploads/ {
+        client_max_body_size 10g;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        proxy_pass http://127.0.0.1:4444;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host  $host;
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Getting a certificate
+#
+# The chicken and egg problem: nginx won't start with an ssl_certificate line
+# pointing at a file that doesn't exist yet. So do it in two passes.
+#
+#   1. comment out this whole HTTPS server block
+#   2. mkdir -p /var/www/letsencrypt && nginx -t && systemctl reload nginx
+#   3. certbot certonly --webroot -w /var/www/letsencrypt -d npm.example.com
+#   4. uncomment the block, nginx -t && systemctl reload nginx
+#
+# Renewal runs on the certbot timer the package sets up. Trust, but verify:
+#
+#   certbot renew --dry-run
+# -----------------------------------------------------------------------------
