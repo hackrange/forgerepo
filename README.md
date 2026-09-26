@@ -47,7 +47,7 @@ sudo bash setup.sh --url https://npm.example.com
 ```
 
 That installs docker and the compose plugin if they are missing, puts the
-project in `/data/docker/npm-repo`, makes up a strong admin password and a
+project in `/data/docker/forgerepo`, makes up a strong admin password and a
 break glass key, builds the image, starts it and waits for the database to
 finish building itself. It prints the password at the end and writes it to
 `.env`.
@@ -60,7 +60,7 @@ Options, all optional:
 | Flag | What for |
 | --- | --- |
 | `--url https://npm.example.com` | the address developers will use |
-| `--dir /opt/npm-repo` | install somewhere other than `/data/docker/npm-repo` |
+| `--dir /opt/forgerepo` | install somewhere other than `/data/docker/forgerepo` |
 | `--port 4444` | host port to publish on |
 | `--name npm-repo` | container name, change it to run two on one box |
 | `--no-start` | set it all up but do not start it |
@@ -72,7 +72,7 @@ same steps and should work.
 ### Upgrading
 
 ```bash
-cd /data/docker/npm-repo
+cd /data/docker/forgerepo      # /data/docker/npm-repo on an install from before the rename
 sudo ./setup.sh --upgrade
 ```
 
@@ -119,7 +119,7 @@ MariaDB 11.8. Upgrade the usual way, pulling first so the new `setup.sh` is the
 one that runs:
 
 ```bash
-cd /data/docker/npm-repo
+cd /data/docker/forgerepo      # /data/docker/npm-repo on an install from before the rename
 git pull --ff-only
 sudo ./setup.sh --upgrade
 ```
@@ -149,7 +149,7 @@ To go back, set the upgraded database aside, start the old image on an empty one
 and restore the backup into it. With `DATA_PATH=./data`:
 
 ```bash
-cd /data/docker/npm-repo
+cd /data/docker/forgerepo      # /data/docker/npm-repo on an install from before the rename
 docker compose down
 mv data/mysql data/mysql.after-upgrade
 docker tag npm-repo:previous npm-repo:latest && docker compose up -d
@@ -163,9 +163,9 @@ project name in front of the volume's, so it is read off the container first
 rather than typed:
 
 ```bash
-cd /data/docker/npm-repo
+cd /data/docker/forgerepo      # /data/docker/npm-repo on an install from before the rename
 VOL=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' npm-repo)
-echo "$VOL"           # npm-repo_npm-repo-data on a default install; stop if empty
+echo "$VOL"           # forgerepo_npm-repo-data on a default install (npm-repo_npm-repo-data before the rename); stop if empty
 docker compose down
 docker run --rm --entrypoint sh -v "$VOL":/data npm-repo:previous -c 'mv /data/mysql /data/mysql.after-upgrade'
 docker tag npm-repo:previous npm-repo:latest && docker compose up -d
@@ -185,8 +185,8 @@ came back the same.
 If you would rather do it yourself:
 
 ```bash
-git clone https://github.com/hackrange/forgerepo.git npm-repo
-cd npm-repo
+git clone https://github.com/hackrange/forgerepo.git forgerepo
+cd forgerepo
 
 cp .env.example .env
 $EDITOR .env          # set PUBLIC_URL at the very least

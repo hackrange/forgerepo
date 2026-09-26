@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# npm-repo installer
+# ForgeRepo installer
 # Author: Tim Rice
 #
 # Run it on a fresh machine and it does the whole lot:
 #
 #   sudo ./setup.sh
 #
-# Installs docker if it's missing, puts the files in
-# /data/docker/npm-repo, invents a strong admin password and a break glass
-# key, builds the image, starts it, and waits for the database to wake up.
+# Installs docker if it's missing, puts the files in /data/docker/forgerepo
+# (an older install in /data/docker/npm-repo stays where it is), invents a
+# strong admin password and a break glass key, builds and starts it.
 # Safe to run twice. Never overwrites an existing .env, never touches your data.
 #
 # Options (all optional):
 #   --url https://npm.example.com   the address your developers will use
-#   --dir /somewhere/else           install somewhere other than /data/docker/npm-repo
+#   --dir /somewhere/else           install somewhere other than the default
 #   --port 4444                     host port to publish on
 #   --name npm-repo                 container name, change it to run two on one box
 #   --no-start                      set everything up but don't start it
@@ -45,7 +45,7 @@
 
 set -euo pipefail
 
-INSTALL_DIR="${INSTALL_DIR:-/data/docker/npm-repo}"
+INSTALL_DIR="${INSTALL_DIR:-}"
 PUBLIC_URL="${PUBLIC_URL:-}"
 DB_HOST="${DB_HOST:-}"
 DB_PORT="${DB_PORT:-3306}"
@@ -79,6 +79,16 @@ while [ $# -gt 0 ]; do
         *)          echo "do not know what to do with: $1"; exit 1 ;;
     esac
 done
+
+# new installs go in forgerepo. one from before the rename stays in npm-repo: docker names the data volume
+# after the folder, so moving it would bring the app up on a new, empty volume
+if [ -z "$INSTALL_DIR" ]; then
+    if [ -f /data/docker/npm-repo/docker-compose.yml ]; then
+        INSTALL_DIR=/data/docker/npm-repo
+    else
+        INSTALL_DIR=/data/docker/forgerepo
+    fi
+fi
 
 say()  { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '    \033[32mok\033[0m %s\n' "$*"; }
@@ -389,7 +399,7 @@ upgrade() {
 
     cat <<UPGRADED
 
-$(printf '\033[1;32m')npm-repo is up to date and running.$(printf '\033[0m')
+$(printf '\033[1;32m')ForgeRepo is up to date and running.$(printf '\033[0m')
 
   Directory   ${dir}
   Version     $([ -d .git ] && git log -1 --format='%h %s' | cut -c1-70 || echo 'not a git checkout')
