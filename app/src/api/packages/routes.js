@@ -10,6 +10,7 @@ const { fail } = require('../../lib/errors');
 const { actorOf } = require('../../lib/actor');
 const { str, required, likeTerm, oneOf, paging } = require('../../lib/validate');
 const { ruleEcosystem } = require('../../policy/rulecheck');
+const ociName = require('../../ecosystems/oci/name');
 
 const router = express.Router();
 
@@ -34,6 +35,19 @@ router.get(
     const name = required(req.query.name, 214, 'package name');
     if (!upstream.validName(name)) fail(400, 'that is not a valid package name');
     res.json({ name, versions: await packages.versions(name) });
+  })
+);
+
+// the tags behind "3 of 7 tags" on the images list
+router.get(
+  '/packages/tags',
+  auth.requirePerm('packages:read'),
+  wrap(async (req, res) => {
+    ruleEcosystem('oci', { mustBeOn: true });
+    const name = required(req.query.name, 255, 'image name');
+    if (!ociName.valid(name)) fail(400, 'that is not a valid image name');
+    const folded = ociName.fold(name);
+    res.json({ name: folded, tags: await packages.tags(folded) });
   })
 );
 

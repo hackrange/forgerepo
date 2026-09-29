@@ -169,6 +169,25 @@ function notice(text, kind) {
   ]);
 }
 
+// a native <dialog>: Esc, focus and the backdrop come free. gone from the dom once closed
+function modal(title, content) {
+  var box = h('dialog', { class: 'modal', 'aria-label': title }, [
+    h('div', { class: 'modal-head' }, [
+      h('h2', null, [title]),
+      h('button', { type: 'button', class: 'modal-close', 'aria-label': 'Close', onclick: function () { box.close(); } }, ['\u00d7'])
+    ]),
+    h('div', { class: 'modal-body' }, [content])
+  ]);
+  // a click on the backdrop lands on the dialog itself, not on anything inside it
+  box.addEventListener('click', function (e) { if (e.target === box) box.close(); });
+  box.addEventListener('close', function () { box.remove(); });
+  document.body.appendChild(box);
+  box.showModal();
+  return {
+    set: function (node) { var b = box.querySelector('.modal-body'); clear(b); b.appendChild(node); }
+  };
+}
+
 export {
-  SVGNS, anvilMark, brandMark, bytes, can, clear, notice, pager, setTitle, svgIcon, table, tabs, when
+  SVGNS, anvilMark, brandMark, bytes, can, clear, modal, notice, pager, setTitle, svgIcon, table, tabs, when
 };

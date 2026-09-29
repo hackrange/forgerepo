@@ -33,6 +33,24 @@ async function list(search, paging, type = 'npm') {
   return { rows, total };
 }
 
+// every tag an image is known by, what the rules say about it now, and how much of it is on disk
+async function tags(name) {
+  const images = require('../registry/oci/cache-state');
+  const gate = require('../registry/oci/gate');
+  const { aliases } = await require('../registry/oci/upstream').canonicalName(name);
+  const rows = await require('../db/repositories/oci-tags').forRepository(name);
+  const out = [];
+  for (const row of rows) {
+    const held = await images.refState(name, row.tag);
+    const verdict = await gate.decide(name, row.tag, undefined, { aliases });
+    out.push({
+      tag: row.tag, digest: row.digest, checked_at: row.checked_at, allowed: !!verdict.allowed, reason: verdict.reason || null,
+      complete: held.complete, files: held.files || 0, held_files: held.heldFiles || 0
+    });
+  }
+  return out;
+}
+
 async function versions(name) {
   const rows = await packages.versions(name);
   for (const row of rows) {
@@ -81,4 +99,4 @@ async function purgeCache(actor) {
   await audit(actor, 'cache.purge.all', null, null);
 }
 
-module.exports = { list, versions, purge, bulk, purgeCache };
+module.exports = { list, tags, versions, purge, bulk, purgeCache };

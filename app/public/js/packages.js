@@ -3,7 +3,7 @@
 
 import { h, link } from './dom.js';
 import { ecoPkg } from './ecosystems.js';
-import { bytes, can, pager, table, when } from './ui.js';
+import { bytes, can, modal, notice, pager, table, when } from './ui.js';
 import { api } from './api.js';
 import { section } from './frame.js';
 import { quickAllow } from './overview.js';
@@ -178,20 +178,45 @@ function storedList(body, d) {
   body.appendChild(table(
     ['Package', 'Status', { label: image ? 'Pulls' : 'Downloads', num: true }, { label: 'Cached', num: true }, 'Last used', 'Actions'],
     d.packages.map(function (p) {
+      // the "of n tags" half opens the whole list
       var cached = image
-        ? p.cached_versions + ' of ' + p.known_tags + ' tag' + (p.known_tags === 1 ? '' : 's') + ', ' + bytes(p.cached_bytes)
-        : p.cached_versions + ' (' + bytes(p.cached_bytes) + ')';
+        ? [p.cached_versions + ' of ', p.known_tags
+          ? link(p.known_tags + ' tag' + (p.known_tags === 1 ? '' : 's'), function () { showTags(p.name); })
+          : '0 tags', ', ' + bytes(p.cached_bytes)]
+        : [p.cached_versions + ' (' + bytes(p.cached_bytes) + ')'];
       return [
         ecoPkg(packagesType, p.name),
         h('span', { class: p.allowed ? 'allow' : 'deny', title: p.reason || '' }, [p.allowed ? 'allowed' : 'blocked']),
         String(p.hits || 0),
-        h('span', { class: image && p.cached_versions < p.known_tags ? 'warn' : null }, [cached]),
+        h('span', { class: image && p.cached_versions < p.known_tags ? 'warn' : null }, cached),
         when(p.last_access),
         h('span', { class: 'actions' }, [link(p.files + ' file' + (Number(p.files) === 1 ? '' : 's'), function () { showArtifacts(packagesType, p.name); })])
       ];
     })
   ));
   body.appendChild(pager(d.page, d.total, d.limit, function (n) { packagesPage = n; route(); }));
+}
+
+// every tag of one image, allowed or not, and how much of each is on disk
+function showTags(name) {
+  var box = modal('Tags of ' + name, h('p', { class: 'muted' }, ['Loading...']));
+  api('GET', '/packages/tags?name=' + encodeURIComponent(name)).then(function (d) {
+    var ok = d.tags.filter(function (t) { return t.allowed; }).length;
+    box.set(h('div', null, [
+      h('p', { class: 'hint' }, [ok + ' of ' + d.tags.length + ' allowed by the rules as they stand now. Cached means every layer of every platform is on this box.']),
+      table(['Tag', 'Status', 'Cached', 'Digest', 'Last checked'], d.tags.map(function (t) {
+        return [
+          h('code', null, [t.tag]),
+          h('span', { class: t.allowed ? 'allow' : 'deny', title: t.reason || '' }, [t.allowed ? 'allowed' : 'blocked']),
+          t.complete
+            ? h('span', { class: 'allow' }, ['yes'])
+            : h('span', { class: 'warn' }, [t.files ? t.held_files + ' of ' + t.files + ' files' : 'no']),
+          h('code', { class: 'muted', title: t.digest || '' }, [t.digest ? t.digest.slice(7, 19) : '-']),
+          when(t.checked_at)
+        ];
+      }))
+    ]));
+  }).catch(function (e) { box.set(notice(e.message, 'err')); });
 }
 
 export { viewPackages };
