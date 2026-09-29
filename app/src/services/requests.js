@@ -204,15 +204,35 @@ async function advisories(ids, ownerId) {
 
 // ---------------------------------------------------------------- asking
 
+// already approved means what was asked for, not just the name. a rule for ubuntu 22.04 says nothing about 24.04
+async function coveredAlready(type, name, range) {
+  const names = type.id === 'oci' ? (await require('../registry/oci/upstream').canonicalName(name)).aliases : [name];
+  // pypi pins come in as ==2.31.0
+  const exact = range ? range.split('||').map((p) => (type.id === 'pypi' ? p.trim().replace(/^==\s*/, '') : p.trim())) : [];
+  if (exact.length && exact.every((v) => type.validVersion(v))) {
+    for (const v of exact) {
+      const verdict = type.id === 'oci'
+        ? await require('../registry/oci/gate').decide(names[0], v, undefined, { aliases: names })
+        : await policy.checkVersion(name, v, type.adapter);
+      if (!verdict.allowed) return false;
+    }
+    return true;
+  }
+  // no versions, or a real range: only a rule for every version counts. a deny on either image name wins
+  const verdicts = [];
+  for (const n of names) verdicts.push(await policy.checkVersion(n, null, type.adapter));
+  if (verdicts.some((v) => !v.allowed && v.rule && v.rule.kind === 'deny')) return false;
+  return verdicts.some((v) => v.allowed);
+}
+
 // { type, name, range, reason } -> { alreadyAllowed } | { bumped: id } | { created: id }
 async function ask(actor, { type, name, range, reason }) {
   const gate = await auth.rateLimit(`req:${actor.id}`, 20, 60 * 60000);
   if (!gate.ok) fail(429, 'that is a lot of requests in one hour, give it a rest');
 
-  const verdict = await policy.checkPackage(name, type.adapter);
-  if (verdict.allowed) return { alreadyAllowed: true };
+  if (await coveredAlready(type, name, range)) return { alreadyAllowed: true };
 
-  const dupe = await requests.openFor(type.id, name, actor.id);
+  const dupe = await requests.openFor(type.id, name, actor.id, range);
   if (dupe) {
     await requests.bump(dupe.id);
     return { bumped: dupe.id };
@@ -251,13 +271,12 @@ async function askMany(actor, { type, items, reason }) {
       range = '';                       // junk range? drop it
     }
 
-    const verdict = await policy.checkPackage(name, type.adapter);
-    if (verdict.allowed) {
+    if (await coveredAlready(type, name, range)) {
       skipped.push({ name, error: 'already approved, you can install it now' });
       continue;
     }
 
-    const dupe = await requests.openFor(type.id, name, actor.id);
+    const dupe = await requests.openFor(type.id, name, actor.id, range);
     if (dupe) {
       await requests.bump(dupe.id);
       bumped.push(name);

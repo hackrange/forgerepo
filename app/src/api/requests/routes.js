@@ -15,6 +15,12 @@ const { ownerFor } = require('./owner');
 
 const router = express.Router();
 
+// people type ubuntu:24.04 or ubuntu@sha256:... into the package box, same as docker pull. the versions box wins if both
+function splitImageRef(type, typed, range) {
+  const m = type.id === 'oci' && !String(range || '').trim() ? /^([^:@\s]+)(?::([^:@/\s]+)|@(sha256:[a-f0-9]{64}))$/.exec(typed.trim()) : null;
+  return m ? { name: m[1], range: m[2] || m[3] } : { name: typed, range };
+}
+
 router.get(
   '/requests',
   auth.requirePerm('requests:read:own'),
@@ -53,15 +59,15 @@ router.post(
   auth.requirePerm('requests:create'),
   wrap(async (req, res) => {
     const type = toolsType(ruleEcosystem(req.body.ecosystem, { mustBeOn: true }));
-    const typed = required(req.body.package_name, 214, 'package name');
-    if (!type.validName(typed)) fail(400, type.badName);
-    const name = type.name(typed);
-    const range = checkRange(req.body.version_range, type.id);
+    const asked = splitImageRef(type, required(req.body.package_name, 214, 'package name'), req.body.version_range);
+    if (!type.validName(asked.name)) fail(400, type.badName);
+    const name = type.name(asked.name);
+    const range = checkRange(asked.range, type.id);
     const reason = required(req.body.reason, 1000, 'reason');
 
     const outcome = await requests.ask(actorOf(req), { type, name, range, reason });
     if (outcome.alreadyAllowed) {
-      return res.status(409).json({ error: `${name} is already approved, you can install it now`, alreadyAllowed: true });
+      return res.status(409).json({ error: `${name}${range ? ` ${range}` : ''} is already approved, you can install it now`, alreadyAllowed: true });
     }
     const checking = require('../../services/auto-approve').waitNote(type.id);
     if (outcome.bumped) return res.json({ ok: true, id: outcome.bumped, note: `You already had one open for this, it was bumped. ${checking}` });

@@ -54,10 +54,11 @@ function byIds(ids, ownerId, { brief = false } = {}) {
     : db.query(`SELECT ${cols} FROM requests WHERE id IN (${marks(ids)}) AND user_id = ?`, [...ids, ownerId]);
 }
 
-function openFor(ecosystem, name, userId) {
+// same versions too, ubuntu 24.04 isn't a repeat of ubuntu 22.04
+function openFor(ecosystem, name, userId, range = '') {
   return db.one(
-    "SELECT id FROM requests WHERE ecosystem = ? AND package_name = ? AND user_id = ? AND status = 'pending'",
-    [ecosystem, name, userId]
+    "SELECT id FROM requests WHERE ecosystem = ? AND package_name = ? AND user_id = ? AND COALESCE(version_range, '') = ? AND status = 'pending'",
+    [ecosystem, name, userId, range || '']
   );
 }
 
