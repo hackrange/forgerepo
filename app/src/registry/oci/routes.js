@@ -324,6 +324,8 @@ router.get(/^\/v2\/(.+)\/blobs\/(.+)$/, wrap(async (req, res) => {
     package_name: asked.repository, version: asked.rest, action: 'allow', bytes: blob.size, cache_hit: blob.cacheHit ? 1 : 0
   });
   if (req.method === 'HEAD') return res.end();
+  // every other registry does this, images just never got the memo
+  artifacts.touch(blob.artifactId);
   const stream = artifacts.open(blob);
   // a damaged or unreadable blob cuts the connection. left alone, the client would wait on a download that never ends
   stream.on('error', (err) => {

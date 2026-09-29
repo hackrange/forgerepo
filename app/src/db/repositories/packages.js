@@ -129,6 +129,9 @@ const STORE_SORTS = { name: 'name', hits: 'hits', last: 'last_access' };
 // traffic log's tag requests are the pulls, for as long as the log is kept
 const PULLS = `(SELECT COUNT(*) FROM access_log l WHERE l.package_name = artifacts.package_name AND l.ecosystem = 'oci'
        AND l.action = 'allow' AND l.method IN ('GET', 'HEAD') AND l.path LIKE '%/manifests/%' AND l.version NOT LIKE 'sha256:%')`;
+// a pull of an image docker already has the layers for only fetches the manifest, and manifests aren't in artifacts
+const LAST_PULL = `(SELECT MAX(l.ts) FROM access_log l WHERE l.package_name = artifacts.package_name AND l.ecosystem = 'oci'
+       AND l.action = 'allow' AND l.method IN ('GET', 'HEAD') AND l.path LIKE '%/manifests/%')`;
 async function storedPage(ecosystem, search, { sort, dir, limit, offset }) {
   const where = search ? 'AND package_name LIKE ?' : '';
   const params = search ? [ecosystem, search] : [ecosystem];
@@ -136,7 +139,7 @@ async function storedPage(ecosystem, search, { sort, dir, limit, offset }) {
   const direction = dir === 'asc' ? 'ASC' : 'DESC';
   const rows = await db.query(
     `SELECT package_name AS name, ${ecosystem === 'oci' ? PULLS : 'SUM(download_count)'} AS hits, MIN(first_seen) AS first_seen,
-            MAX(COALESCE(last_access, first_seen)) AS last_access,
+            ${ecosystem === 'oci' ? `GREATEST(MAX(COALESCE(last_access, first_seen)), COALESCE(${LAST_PULL}, MAX(COALESCE(last_access, first_seen))))` : 'MAX(COALESCE(last_access, first_seen))'} AS last_access,
             COUNT(*) AS files, COALESCE(SUM(size), 0) AS cached_bytes, COUNT(DISTINCT NULLIF(version, '')) AS cached_versions
        FROM artifacts WHERE ecosystem = ? ${where} GROUP BY package_name ORDER BY ${order} ${direction} LIMIT ? OFFSET ?`,
     [...params, limit, offset]
