@@ -3,7 +3,8 @@
 // the same test nuget.org uses: word characters, with dots, dashes or underscores between them, 100 at most
 
 const MAX = 100;
-const ID_RE = /^\w+(?:[_.-]\w+)*$/;
+// \w already has the _ in it, so _ isn't a separator here. with it, a_a_a_a...! took minutes to say no
+const ID_RE = /^\w+(?:[.-]\w+)*$/;
 
 function valid(text) {
   const id = String(text || '').trim();

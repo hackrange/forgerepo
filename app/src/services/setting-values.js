@@ -448,10 +448,15 @@ async function checkValue(key, rawValue, ctx) {
       // admin left out on purpose
       if (!value) fail(400, 'new accounts can come in as viewer, developer, publisher or approver');
       break;
-    case 'oidc_issuer':
-      value = String(value || '').trim().replace(/\/+$/, '');
+    case 'oidc_issuer': {
+      // no regex for the trailing slashes, a long run of them made it crawl
+      value = String(value || '').trim();
+      let end = value.length;
+      while (end > 0 && value[end - 1] === '/') end -= 1;
+      value = value.slice(0, end);
       if (value && !/^https:\/\/[^\s]+$/i.test(value)) fail(400, 'the identity provider address has to be an https url');
       break;
+    }
     case 'oidc_redirect_url':
       value = String(value || '').trim();
       if (value && !/^https?:\/\/[^\s]+$/i.test(value)) fail(400, 'the redirect address has to be a url');
