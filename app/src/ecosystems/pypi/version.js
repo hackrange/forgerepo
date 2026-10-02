@@ -188,8 +188,8 @@ function withoutLocal(v) {
   return v.local === null ? v : { ...v, local: null };
 }
 
-// longer ops first, or === reads as == plus "=1.0"
-const CLAUSE_RE = /^\s*(===|==|!=|~=|<=|>=|<|>)\s*(.+?)\s*$/;
+// longer ops first, or === reads as == plus "=1.0". runs on a trimmed part, a lazy .+? before \s*$ crawls on long spaces
+const CLAUSE_RE = /^(===|==|!=|~=|<=|>=|<|>)\s*(.+)$/;
 
 // pip's comma form, e.g. ">=1.4,<2,!=1.7.1". empty or * matches everything.
 // No operator means ==. pip would reject that, but SBOM imports drop bare versions in the
@@ -201,7 +201,7 @@ function parseSpecifierSet(text) {
   const clauses = [];
   for (const part of raw.split(',')) {
     if (!part.trim()) continue;
-    const m = CLAUSE_RE.exec(part);
+    const m = CLAUSE_RE.exec(part.trim());
     if (!m) {
       // bare version (maybe .*) or garbage
       const only = part.trim();

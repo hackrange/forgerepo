@@ -19,14 +19,16 @@ function oneLine(text) {
 
 function addressOnly(value) {
   const s = oneLine(value);
-  const match = s.match(/<([^>]+)>/);
+  // no < inside the brackets, so a pile of <<<< can't make it crawl
+  const match = s.match(/<([^<>]+)>/);
   return (match ? match[1] : s).trim();
 }
 
 //loose on purpose, catches typos. not trying to be RFC 5322
+// length first, the pattern is slow on long junk
 function validAddress(value) {
   const s = addressOnly(value);
-  return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(s) && s.length <= 254;
+  return s.length <= 254 && /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(s);
 }
 
 function wrap76(text) {

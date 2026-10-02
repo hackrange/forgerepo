@@ -3,7 +3,9 @@
 // the same pattern Composer's schema gives, so monolog/monolog and symfony/http-kernel read and Monolog/Monolog folds
 
 const MAX = 214;
-const NAME_RE = /^[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$/;
+// same names as composer's schema, but the separator isn't optional inside the repeat, so there's
+// only one way to read a name. the schema's own shape backtracks for ages on aaaa...!
+const NAME_RE = /^[a-z0-9]+(?:[_.-][a-z0-9]+)*\/[a-z0-9]+(?:(?:[_.]|-{1,2})[a-z0-9]+)*$/;
 
 const fold = (text) => String(text || '').trim().toLowerCase();
 const valid = (text) => {

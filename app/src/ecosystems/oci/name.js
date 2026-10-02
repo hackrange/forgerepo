@@ -14,8 +14,14 @@ const PATTERN_RE = /^[a-z0-9*][a-z0-9._\-*/]*$/;
 const MAX_NAME = 255;
 
 // names are compared lower case, with any leading or trailing slash dropped
+// by hand, not /\/+$/, which crawls on a long run of slashes
 function fold(text) {
-  return String(text || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  const s = String(text || '').trim();
+  let a = 0;
+  let b = s.length;
+  while (a < b && s[a] === '/') a++;
+  while (b > a && s[b - 1] === '/') b--;
+  return s.slice(a, b).toLowerCase();
 }
 
 function foldPattern(pattern) {

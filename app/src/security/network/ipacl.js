@@ -28,6 +28,8 @@ function parseV4(text) {
 }
 
 function parseV6(text) {
+  // 45 is the longest real one (with a dotted quad on the end). anything longer is junk, and slow junk
+  if (text.length > 45) return null;
   let head = text;
   let tailV4 = null;
 
