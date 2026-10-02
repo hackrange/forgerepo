@@ -6,25 +6,41 @@
 // ranged rules only bite per version, so a ranged allow still opens the door at package level.
 // name spelling + range testing come from ecosystems/, default npm
 
+const crypto = require('crypto');
 const semver = require('semver');
 const db = require('../db');
 const npm = require('../ecosystems/npm');
 const rulesRepo = require('../db/repositories/rules');
 const lifecycle = require('./lifecycle');
 const pypiName = require('../ecosystems/pypi/name');
+const { Glob } = require('../lib/glob');
 
 let rules = [];
 let loadedAt = 0;
 let dirty = true;
+// md5 of the rule rows we built from. same print = same answers, so nothing gets redone
+let fingerprint = '';
 
-// compiled patterns per ecosystem, cleared on reload
+// compiled patterns per ecosystem, cleared when the rules really change
 const compiled = new Map();
+
+// what the rules said about each version, per package + scope + mode. typescript has 3800 versions
+// and checking them all against 10k rules on every install pinned the cpu, so ask once and remember
+const verdicts = new Map();
+let remembered = 0;
+const MAX_REMEMBERED = 200000;
 
 const TTL_MS = 5000;
 
 async function reload(force) {
   if (!force && !dirty && Date.now() - loadedAt < TTL_MS) return rules;
   const rows = await rulesRepo.enabledForEngine();
+  const print = crypto.createHash('md5').update(JSON.stringify(rows)).digest('hex');
+  if (!force && print === fingerprint) {
+    loadedAt = Date.now();
+    dirty = false;
+    return rules;
+  }
   rules = rows.map((r) => {
     const raw = String(r.pattern);
     const app = Number(r.application_id) || 0;
@@ -43,6 +59,9 @@ async function reload(force) {
   });
   rules.sort(compare);
   compiled.clear();
+  verdicts.clear();
+  remembered = 0;
+  fingerprint = print;
   loadedAt = Date.now();
   dirty = false;
   return rules;
@@ -58,26 +77,53 @@ function invalidate() {
   }
 }
 
-// glob style. Only `*` is special, and yes it happily crosses the scope slash
+// glob style. Only `*` is special, and yes it happily crosses the scope slash.
+// used to be a regex, but five stars and a long name could tie the box up for a while
 function toRegex(pattern) {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`);
+  return new Glob(pattern);
 }
 
 // This ecosystem's rules only. `requests` on npm and on PyPI are separate projects, so
 // never even look at the other side's. How a name is spelled is the adapter's call
-function entriesFor(eco) {
-  let list = compiled.get(eco.id);
-  if (!list) {
-    list = [];
+//filed by name too. a pattern with no star only ever matches its own spelling, so it goes in
+// a bucket under that spelling and a lookup reads one bucket plus the globs, not all 10k rules
+function indexFor(eco) {
+  let idx = compiled.get(eco.id);
+  if (!idx) {
+    idx = { list: [], exact: new Map(), wild: [], kinds: new Set(), apps: new Set([0]), envs: new Set([0]) };
     for (const rule of rules) {
       if ((rule.ecosystem || npm.id) !== eco.id) continue;
-      const regex = eco === npm ? rule.regex : toRegex(eco.rulePattern(rule.kind, rule.pattern));
-      list.push({ rule, regex });
+      const text = String(eco.rulePattern(rule.kind, rule.pattern));
+      const regex = eco === npm ? rule.regex : toRegex(text);
+      const entry = { rule, regex, at: idx.list.length };
+      idx.list.push(entry);
+      idx.kinds.add(rule.kind);
+      idx.apps.add(rule.application_id);
+      idx.envs.add(rule.environment_id);
+      if (text.includes('*')) {
+        idx.wild.push(entry);
+      } else {
+        const key = `${rule.kind}\0${text}`;
+        if (!idx.exact.has(key)) idx.exact.set(key, []);
+        idx.exact.get(key).push(entry);
+      }
     }
-    compiled.set(eco.id, list);
+    compiled.set(eco.id, idx);
   }
-  return list;
+  return idx;
+}
+
+// every rule that could match this name, in the full list's order. still tested one by one after,
+// so this only skips rules that could never have matched anyway
+function candidatesFor(eco, name) {
+  const idx = indexFor(eco);
+  let hits = [];
+  for (const kind of idx.kinds) {
+    const bucket = idx.exact.get(`${kind}\0${eco.ruleName(kind, name)}`);
+    if (bucket) hits = hits.concat(bucket);
+  }
+  if (idx.wild.length) hits = hits.concat(idx.wild);
+  return hits.sort((a, b) => a.at - b.at);
 }
 
 // exact name beats a glob, longer glob beats a shorter one
@@ -135,7 +181,7 @@ function applies(rule, scope) {
 async function denyRulesFor(name, ecosystem, scope) {
   const eco = ecosystem || npm;
   await reload();
-  return entriesFor(eco)
+  return candidatesFor(eco, name)
     .filter(({ rule, regex }) => rule.kind === 'deny' && applies(rule, scope) && regex.test(eco.ruleName(rule.kind, name)))
     .map(({ rule }) => rule);
 }
@@ -144,7 +190,7 @@ async function denyRulesFor(name, ecosystem, scope) {
 async function checkPackage(name, ecosystem, scope) {
   const eco = ecosystem || npm;
   await reload();
-  for (const { rule, regex } of entriesFor(eco)) {
+  for (const { rule, regex } of candidatesFor(eco, name)) {
     if (!applies(rule, scope)) continue;
     if (!regex.test(eco.ruleName(rule.kind, name))) continue;
     // a ranged deny can't kill the whole package, just some versions of it
@@ -158,7 +204,37 @@ async function checkPackage(name, ecosystem, scope) {
 async function checkVersion(name, version, ecosystem, scope) {
   const eco = ecosystem || npm;
   await reload();
-  return staged(firstMatch(entriesFor(eco), eco, name, version, scope), eco, name, version, scope);
+  return staged(rememberedMatch(eco, name, version, scope), eco, name, version, scope);
+}
+
+// firstMatch, asked once per package + version + scope + mode until the rules change. the stage on top
+// is still asked every time, it lives in its own table
+function rememberedMatch(eco, name, version, scope) {
+  const s = scope || EVERYONE;
+  const key = JSON.stringify([eco.id, s.app, s.env, db.settings.get('policy_mode'), name]);
+  let seen = verdicts.get(key);
+  if (seen) {
+    //most recently used goes to the back of the line
+    verdicts.delete(key);
+  } else {
+    seen = { list: candidatesFor(eco, name), byVersion: new Map() };
+  }
+  verdicts.set(key, seen);
+  const v = version === undefined ? 'none' : JSON.stringify(version);
+  let verdict = seen.byVersion.get(v);
+  if (!verdict) {
+    verdict = firstMatch(seen.list, eco, name, version, scope);
+    seen.byVersion.set(v, verdict);
+    remembered += 1;
+    // full? forget the packages nobody asked about lately
+    for (const [k, old] of verdicts) {
+      if (remembered <= MAX_REMEMBERED || old === seen) break;
+      remembered -= old.byVersion.size;
+      verdicts.delete(k);
+    }
+  }
+  // a copy, so nobody downstream can scribble on the remembered one
+  return { ...verdict };
 }
 
 // a lifecycle stage only ever takes away, and only with enforcement on
@@ -187,7 +263,7 @@ async function checkVersionWith(extra, name, version, ecosystem, scope) {
   await reload();
   if ((extra.ecosystem || npm.id) !== eco.id) return checkVersion(name, version, eco, scope);
   const regex = eco === npm ? extra.regex : toRegex(eco.rulePattern(extra.kind, extra.pattern));
-  const list = [...entriesFor(eco), { rule: extra, regex }].sort((a, b) => compare(a.rule, b.rule));
+  const list = [...candidatesFor(eco, name), { rule: extra, regex }].sort((a, b) => compare(a.rule, b.rule));
   return staged(firstMatch(list, eco, name, version, scope), eco, name, version, scope);
 }
 
@@ -269,16 +345,12 @@ async function filterPackument(name, doc, scope) {
 async function allowedAnywhere(name, version, ecosystem) {
   const eco = ecosystem || npm;
   await reload();
-  const apps = new Set([0]);
-  const envs = new Set([0]);
-  for (const { rule } of entriesFor(eco)) {
-    apps.add(rule.application_id);
-    envs.add(rule.environment_id);
-  }
+  const { apps, envs } = indexFor(eco);
+  const list = candidatesFor(eco, name);
   let first = null;
   for (const app of apps) {
     for (const env of envs) {
-      const verdict = firstMatch(entriesFor(eco), eco, name, version, { app, env });
+      const verdict = firstMatch(list, eco, name, version, { app, env });
       if (verdict.allowed) return verdict;
       if (!first) first = verdict;
     }
