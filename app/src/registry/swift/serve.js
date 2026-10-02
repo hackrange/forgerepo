@@ -132,7 +132,9 @@ async function manifest(req, res, scope, name, v) {
     return failed(req, res, err, { package_name: r.id, version: v });
   }
   const want = String(req.query['swift-version'] || '');
-  const body = want ? files[want] : files[''];
+  // own keys only, ?swift-version=constructor is not a manifest
+  const key = want || '';
+  const body = Object.prototype.hasOwnProperty.call(files, key) ? files[key] : null;
   if (!body) {
     // no manifest just for that swift, so the plain one it is. the protocol says to send SwiftPM there
     record(req, { package_name: r.id, version: v, action: 'allow', status: 303, reason: `no Package@swift-${want.slice(0, 20)}.swift, sent to Package.swift` });

@@ -75,7 +75,7 @@ function headers(extra, up) {
 
 // upstream url for a package. scoped names get their slash encoded
 function metaUrl(name, up) {
-  return `${up.url}/${name.replace('/', '%2f')}`;
+  return `${up.url}/${name.replace(/\//g, '%2f')}`;
 }
 
 // safefetch checks the real address, redirects and size. see safefetch.js

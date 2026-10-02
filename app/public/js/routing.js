@@ -81,8 +81,10 @@ function route() {
   // #docs/some-topic is the docs page open at a topic
   var name = (window.location.hash || '#dash').slice(1).split('?')[0].split('/')[0];
   var nav = NAV.filter(function (n) { return n.id === name; })[0];
-  if (name !== 'account' && (!VIEWS[name] || (nav && !can(nav.perm)))) name = 'dash';
-  if (!VIEWS[name]) name = 'dash';
+  // own keys only, #constructor isn't a view
+  var known = Object.prototype.hasOwnProperty.call(VIEWS, name);
+  if (name !== 'account' && (!known || (nav && !can(nav.perm)))) name = 'dash';
+  if (!Object.prototype.hasOwnProperty.call(VIEWS, name)) name = 'dash';
 
   show(name, VIEWS[name]);
 }
