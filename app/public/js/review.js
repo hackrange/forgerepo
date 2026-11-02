@@ -33,6 +33,34 @@ function advisoryCell(f) {
       (a.fixed_in ? ', fixed in ' + a.fixed_in : '')]);
 }
 
+// one row per type the inventory reader knows, so nobody has to guess the columns. # lines are skipped
+var CSV_TEMPLATE = [
+  '# package and version are required. ecosystem is optional, a blank one means npm. a purl column works instead of all three',
+  'package,version,ecosystem',
+  'vite,8.3.5,npm',
+  'express,"^4.21.0",npm',
+  '@types/node,22.10.2,npm',
+  'requests,2.32.3,pypi',
+  'Newtonsoft.Json,13.0.3,nuget',
+  'com.fasterxml.jackson.core:jackson-databind,2.17.2,maven',
+  'rails,7.2.1,gem',
+  'Alamofire,5.9.1,cocoapods',
+  'apple.swift-log,1.6.1,swift',
+  'monolog/monolog,3.7.0,composer',
+  'openssl-libs,3.0.7,rpm',
+  'libssl3,3.0.13,apt',
+  ''
+].join('\r\n');
+
+function downloadCsvTemplate() {
+  var url = URL.createObjectURL(new Blob([CSV_TEMPLATE], { type: 'text/csv' }));
+  var a = h('a', { href: url, download: 'package-review-template.csv' });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function reviewFileSection(body) {
   var file = h('input', { type: 'file', accept: '.json,.jsonc,.csv,.tsv,.txt,.in,.lock,.yaml,.yml,.toml,.xml,.cdx,.zip,application/json,text/csv,text/plain,application/xml,text/xml,application/zip' });
   var out = h('div', null, []);
@@ -50,11 +78,14 @@ function reviewFileSection(body) {
       'about them now rather than what the last scan happened to cover.'
     ]),
     h('p', { class: 'hint' }, [
-      'A list can be csv, tab separated, or columns lined up with spaces, with or without a ' +
-      'package and version header. An ecosystem column (npm, pypi, nuget, maven, gem, cocoapods, swift, composer) or a purl ' +
+      'A list can be csv, tab separated, columns lined up with spaces, or one name@version a line ' +
+      '(like @esbuild/linux-x64@0.28.2, npm only), with or without a ' +
+      'package and version header. An ecosystem column (npm, pypi, nuget, maven, gem, cocoapods, swift, composer, rpm, apt) or a purl ' +
       'column says which type each row is, and without one every row is taken as npm. A package listed once per ' +
       'repository is read once. Anything on a line that is not a name and a version is ' +
-      'counted and reported rather than quietly skipped.'
+      'counted and reported rather than quietly skipped. ',
+      link('Download a CSV template', downloadCsvTemplate),
+      ' with one example row for each type.'
     ]),
     h('p', { class: 'hint' }, [
       'A bill of materials usually describes a whole estate, so the parts of it that are not ' +
@@ -554,7 +585,7 @@ function treeSummary(s) {
     s.unknown + ' never seen on this registry.';
 }
 
-function runResolve(name, range, depth, out, ecosystem) {
+function runResolve(name, range, depth, out, ecosystem, peers) {
   // a walk started elsewhere (Requests page) has no type, those are all npm
   var eco = ecosystem || 'npm';
   var target = window.__resolveTarget;
@@ -570,7 +601,7 @@ function runResolve(name, range, depth, out, ecosystem) {
   clear(out);
   out.appendChild(h('p', { class: 'muted' }, ['Walking the tree, this can take a moment...']));
 
-  api('POST', '/tools/resolve', { ecosystem: eco, name: name, version_range: range || 'latest', depth: depth || 12 })
+  api('POST', '/tools/resolve', { ecosystem: eco, name: name, version_range: range || 'latest', depth: depth || 12, peers: !!peers })
     .then(function (d) {
       clear(out);
       // total has the package itself in it, the summary does not
@@ -603,7 +634,7 @@ function runResolve(name, range, depth, out, ecosystem) {
             }).then(function (r) {
               alert('Added ' + r.added + ' rules.' +
                 (r.skipped && r.skipped.length ? '\n\nLeft blocked: ' + r.skipped.length + '.' : ''));
-              runResolve(name, range, depth, out, eco);
+              runResolve(name, range, depth, out, eco, peers);
             }).catch(function (e) { alert(e.message); });
           }
         }, ['Allow all ' + allowable.length + ' packages that are not approved yet']));
@@ -664,7 +695,8 @@ function runResolve(name, range, depth, out, ecosystem) {
             h('span', { class: 'mono' }, [p.name]),
             p.version,
             String(p.depth),
-            (p.via || 'you asked for it') + (p.when ? ', when ' + p.when : '') + (p.optional ? ', optional (npm skips it quietly if blocked)' : ''),
+            (p.via || 'you asked for it') + (p.when ? ', when ' + p.when : '') + (p.peer === 'optional' ? ', optional peer (only if the project has it)' : p.peer ? ', peer' : '') +
+              (p.optional ? ', optional (npm skips it quietly if blocked)' : ''),
             nodeStatus(p)
           ];
         })
@@ -730,7 +762,7 @@ function runResolve(name, range, depth, out, ecosystem) {
                 r.skipped.slice(0, 10).map(function (x) { return x.name + ': ' + x.error; }).join('\n');
             }
             alert(msg);
-            runResolve(name, range, depth, out, eco);
+            runResolve(name, range, depth, out, eco, peers);
           }).catch(function (e) { alert(e.message); });
         };
 

@@ -53,6 +53,12 @@ function splitCsv(line) {
   return out;
 }
 
+// "@esbuild/linux-arm@0.28.2" -> name and version, the way npm prints a spec. the first @ of a scope isn't the split
+function splitSpec(cell) {
+  const m = /^((?:@[^\s/@]+\/)?[^\s/@]+)@(.+)$/.exec(cell);
+  return m ? [m[1], m[2].trim()] : null;
+}
+
 function looksLikeName(cell) {
   return /^(@[^\s/@]+\/)?[^\s/@]+$/.test(cell) && cell.length <= 214;
 }
@@ -153,7 +159,8 @@ function parseTable(text) {
       continue;
     }
     plain = plain || collector('table:two-columns');
-    const cells = raw.filter((c) => c !== '');
+    let cells = raw.filter((c) => c !== '');
+    if (cells.length === 1) cells = splitSpec(cells[0]) || cells;
     plain.add(cells.length < 2 ? null : rowOf({ name: cells[0], spec: cells[1] }, false));
   }
   const out = (found || plain || collector('table')).done();

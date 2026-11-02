@@ -24,10 +24,10 @@ const LICENSE_RANK = { blocked: 3, review: 2, allowed: 1 };
 
 const key = (eco, name, version) => `${eco}\n${name}\n${version}`;
 
-function walk(type, name, range, { depth = 12, dev = false } = {}) {
+function walk(type, name, range, { depth = 12, dev = false, peers = false } = {}) {
   return type.id === 'pypi'
     ? pypitree.resolveTree(name, range, { depth, max: MAX_NODES })
-    : npmUpstream.resolveTree(name, range, { depth, dev, max: MAX_NODES });
+    : npmUpstream.resolveTree(name, range, { depth, dev, peers, max: MAX_NODES });
 }
 
 // findings, holds and cached files for every name in the tree, a few queries instead of one per package
@@ -130,9 +130,9 @@ function summarize(nodes) {
   };
 }
 
-async function analyze(type, name, range, { depth, dev, scope } = {}) {
+async function analyze(type, name, range, { depth, dev, peers, scope } = {}) {
   if (type.walks === false) fail(400, 'an image has no dependency tree to walk. what is inside it is scanned when it is pulled');
-  const tree = await walk(type, name, range, { depth, dev });
+  const tree = await walk(type, name, range, { depth, dev, peers });
   const packages = await judge(type, tree.packages, scope || null);
   return { packages, problems: tree.problems, truncated: tree.truncated, summary: summarize(packages) };
 }

@@ -30,6 +30,7 @@ router.post(
     const range = str(req.body.version_range, 128, 'version range') || 'latest';
     const depth = intIn(req.body.depth, 0, 25, 12);
     const includeDev = boolFlag(req.body.dev, false);
+    const optionalPeers = boolFlag(req.body.peers, false);
     const preview = await previewScope(req.body);
 
     const gate = await auth.rateLimit(`resolve:${req.user.id}`, 30, 10 * 60000);
@@ -42,7 +43,7 @@ router.post(
       if (imageTree.platforms.some((p) => p.queued)) await auth.auditReq(req, 'image.scan', imageTree.root, 'from the dependency tree');
       return res.json(imageTree);
     }
-    const tree = await dependencies.analyze(type, name, range, { depth, dev: includeDev, scope: preview.scope });
+    const tree = await dependencies.analyze(type, name, range, { depth, dev: includeDev, peers: optionalPeers, scope: preview.scope });
     const { packages } = tree;
     const blocked = packages.filter((p) => !p.allowed);
     res.json({

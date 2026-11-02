@@ -171,6 +171,7 @@ function viewTools(body) {
   var depName = h('input', { type: 'text', placeholder: 'express' });
   var depRange = h('input', { type: 'text', value: 'latest' });
   var depth = h('input', { type: 'number', value: '12', min: '0', max: '25' });
+  var depPeers = h('input', { type: 'checkbox' });
   var depOut = h('div', null, []);
   followType(depType, depName);
 
@@ -188,9 +189,11 @@ function viewTools(body) {
       h('div', null, [h('label', null, ['Versions']), depRange]),
       h('div', null, [h('label', null, ['Depth']), depth])
     ]),
+    h('label', null, [depPeers, ' Include optional peers (npm only). vite lists esbuild, sass, terser and friends this way, ' +
+      'npm installs them only when the project already has them, but then they must come from here']),
     h('button', {
       onclick: function () {
-        runResolve(depName.value.trim(), depRange.value.trim(), depth.value, depOut, depType ? depType.value : 'npm');
+        runResolve(depName.value.trim(), depRange.value.trim(), depth.value, depOut, depType ? depType.value : 'npm', depPeers.checked);
       }
     }, ['Walk the tree'])
   ]));

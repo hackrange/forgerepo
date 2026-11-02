@@ -400,13 +400,20 @@ async function search(text, size) {
 
 // walks a dependency tree, capped because some trees are enormous
 async function resolveTree(name, range, opts) {
-  const options = { depth: 12, max: 1500, dev: false, ...(opts || {}) };
+  const options = { depth: 12, max: 1500, dev: false, peers: false, ...(opts || {}) };
   const seen = new Map();
-  const queue = [{ name, range: range || 'latest', depth: 0, via: null, optional: false }];
+  // cond = only here because an optional peer was pulled in, so it can't promote anything to required
+  const queue = [{ name, range: range || 'latest', depth: 0, via: null, optional: false, peer: null, cond: false }];
   const problems = [];
 
   while (queue.length && seen.size < options.max) {
     const item = queue.shift();
+    // "wrap-ansi-cjs": "npm:wrap-ansi@^7" installs wrap-ansi, so that's what the rules see
+    const alias = /^npm:((?:@[^/@]+\/)?[^@]+)(?:@(.*))?$/.exec(String(item.range || ''));
+    if (alias) {
+      item.name = alias[1];
+      item.range = alias[2] || 'latest';
+    }
     if (!validName(item.name)) continue;
 
     let doc;
@@ -426,10 +433,15 @@ async function resolveTree(name, range, opts) {
     const key = `${item.name}@${version}`;
     if (seen.has(key)) {
       //a required path beats an optional one
-      if (!item.optional) seen.get(key).optional = false;
+      const had = seen.get(key);
+      if (!item.cond) {
+        if (!item.optional) had.optional = false;
+        if (!item.peer) had.peer = null;
+        else if (item.peer === 'required' && had.peer) had.peer = 'required';
+      }
       continue;
     }
-    seen.set(key, { name: item.name, version, depth: item.depth, via: item.via, optional: item.optional });
+    seen.set(key, { name: item.name, version, depth: item.depth, via: item.via, optional: item.optional, peer: item.peer });
 
     if (item.depth >= options.depth) continue;
 
@@ -442,7 +454,16 @@ async function resolveTree(name, range, opts) {
     for (const dep of Object.keys(optional)) if (!(dep in deps)) deps[dep] = optional[dep];
     for (const [dep, depRange] of Object.entries(deps)) {
       const opt = item.optional || (dep in optional);
-      queue.push({ name: dep, range: depRange, depth: item.depth + 1, via: key, optional: opt });
+      queue.push({ name: dep, range: depRange, depth: item.depth + 1, via: key, optional: opt, peer: null, cond: item.cond });
+    }
+    // npm 7+ installs required peers on its own. optional ones (vite -> esbuild, sass...) only when the project has them,
+    // so those come along for the asked-for package only, and only when asked
+    const peerMeta = meta.peerDependenciesMeta || {};
+    for (const [dep, depRange] of Object.entries(meta.peerDependencies || {})) {
+      if (dep in deps) continue;
+      const soft = !!(peerMeta[dep] && peerMeta[dep].optional);
+      if (soft && !(options.peers && item.depth === 0)) continue;
+      queue.push({ name: dep, range: depRange, depth: item.depth + 1, via: key, optional: item.optional, peer: soft ? 'optional' : 'required', cond: item.cond || soft });
     }
   }
 
