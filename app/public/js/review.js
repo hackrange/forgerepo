@@ -664,7 +664,7 @@ function runResolve(name, range, depth, out, ecosystem) {
             h('span', { class: 'mono' }, [p.name]),
             p.version,
             String(p.depth),
-            (p.via || 'you asked for it') + (p.when ? ', when ' + p.when : ''),
+            (p.via || 'you asked for it') + (p.when ? ', when ' + p.when : '') + (p.optional ? ', optional (npm skips it quietly if blocked)' : ''),
             nodeStatus(p)
           ];
         })

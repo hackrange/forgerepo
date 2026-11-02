@@ -402,7 +402,7 @@ async function search(text, size) {
 async function resolveTree(name, range, opts) {
   const options = { depth: 12, max: 1500, dev: false, ...(opts || {}) };
   const seen = new Map();
-  const queue = [{ name, range: range || 'latest', depth: 0, via: null }];
+  const queue = [{ name, range: range || 'latest', depth: 0, via: null, optional: false }];
   const problems = [];
 
   while (queue.length && seen.size < options.max) {
@@ -424,16 +424,25 @@ async function resolveTree(name, range, opts) {
     }
 
     const key = `${item.name}@${version}`;
-    if (seen.has(key)) continue;
-    seen.set(key, { name: item.name, version, depth: item.depth, via: item.via });
+    if (seen.has(key)) {
+      //a required path beats an optional one
+      if (!item.optional) seen.get(key).optional = false;
+      continue;
+    }
+    seen.set(key, { name: item.name, version, depth: item.depth, via: item.via, optional: item.optional });
 
     if (item.depth >= options.depth) continue;
 
     const meta = doc.versions[version] || {};
     const deps = { ...(meta.dependencies || {}) };
     if (options.dev && item.depth === 0) Object.assign(deps, meta.devDependencies || {});
+    // pnpm publishes optionals on their own, npm folds them into dependencies too.
+    // the native bindings (rolldown, lightningcss, esbuild...) live here, skip them and the tree is missing the bits that actually run
+    const optional = meta.optionalDependencies || {};
+    for (const dep of Object.keys(optional)) if (!(dep in deps)) deps[dep] = optional[dep];
     for (const [dep, depRange] of Object.entries(deps)) {
-      queue.push({ name: dep, range: depRange, depth: item.depth + 1, via: key });
+      const opt = item.optional || (dep in optional);
+      queue.push({ name: dep, range: depRange, depth: item.depth + 1, via: key, optional: opt });
     }
   }
 
