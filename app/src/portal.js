@@ -44,9 +44,17 @@ function alias(req, res, next) {
   return next();
 }
 
+// the REST API for other products. keys only, and each key carries its own address list, so neither the portal's
+// list nor the registry's applies. exactly /_api/v1 or under it, /_api/v1x is still the portal's
+function isRestApi(requestPath) {
+  const lower = String(requestPath || '').toLowerCase();
+  return lower === '/_api/v1' || lower.startsWith('/_api/v1/');
+}
+
 // Case ignored, express treats /_API like /_api and a gate shouldn't have a side door.
 function isGated(requestPath) {
   const lower = String(requestPath || '').toLowerCase();
+  if (isRestApi(lower)) return false;
   return lower.startsWith(PORTAL) || lower.startsWith('/_api');
 }
 
@@ -129,4 +137,4 @@ function portalPage(publicDir, { title = () => null, favicon = async () => null 
   };
 }
 
-module.exports = { PORTAL, ALIAS, BASE_COOKIE, alias, isGated, isPortalPath, baseFrom, portalPage, wantsPortal, escapeHtml };
+module.exports = { PORTAL, ALIAS, BASE_COOKIE, alias, isRestApi, isGated, isPortalPath, baseFrom, portalPage, wantsPortal, escapeHtml };

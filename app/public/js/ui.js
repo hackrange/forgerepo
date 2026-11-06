@@ -184,7 +184,8 @@ function modal(title, content) {
   document.body.appendChild(box);
   box.showModal();
   return {
-    set: function (node) { var b = box.querySelector('.modal-body'); clear(b); b.appendChild(node); }
+    set: function (node) { var b = box.querySelector('.modal-body'); clear(b); b.appendChild(node); },
+    close: function () { box.close(); }
   };
 }
 

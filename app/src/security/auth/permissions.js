@@ -44,7 +44,9 @@ const ADMIN = [
   'logs:read',
   'cache:purge',
   'backup:export',
-  'backup:import'
+  'backup:import',
+  // API keys for other products. admins only, and nobody else even gets to look
+  'apikeys:manage'
 ];
 
 const ROLE_PERMS = {

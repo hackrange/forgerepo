@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { ecoHints, ecoName, ecoPkg, ecoSelect } from './ecosystems.js';
 import { h, link } from './dom.js';
-import { can, clear, pager, table } from './ui.js';
+import { can, clear, modal, notice, pager, table } from './ui.js';
 import { api, download } from './api.js';
 import { section } from './frame.js';
 import { route } from './routing.js';
@@ -88,6 +88,77 @@ function expiryCell(r) {
   var left = Number(r.expires_ts) * 1000 - Date.now();
   // under 3 days left gets the yellow, so nobody is surprised on monday
   return h('span', { class: left < 3 * 86400000 ? 'warn' : null }, [when]);
+}
+
+// each pinned version on its own, the ones with advisories in red so you don't have to go hunting
+var SEV_ORDER = ['UNKNOWN', 'LOW', 'MODERATE', 'MEDIUM', 'HIGH', 'CRITICAL'];
+function versionsCell(r) {
+  if (!r.version_range) return 'any';
+  var bad = {};
+  String(r.vuln_versions || '').split(',').forEach(function (pair) {
+    var at = pair.lastIndexOf('=');
+    if (at <= 0) return;
+    var v = pair.slice(0, at);
+    var sev = pair.slice(at + 1).toUpperCase();
+    (bad[v] = bad[v] || []).push(sev);
+  });
+  if (!r.vuln_versions) return r.version_range;
+  var parts = r.version_range.split(' || ');
+  var out = [];
+  parts.forEach(function (v, i) {
+    if (i) out.push(' || ');
+    var sevs = bad[v.trim()];
+    if (!sevs) { out.push(v); return; }
+    var worst = sevs.slice().sort(function (a, b) { return SEV_ORDER.indexOf(b) - SEV_ORDER.indexOf(a); })[0];
+    out.push(h('a', {
+      href: '#', class: 'deny vuln-ver',
+      title: v.trim() + ' has ' + sevs.length + ' advisor' + (sevs.length > 1 ? 'ies' : 'y') + ', worst ' + worst.toLowerCase() + '. Click for details',
+      onclick: function (e) { e.preventDefault(); versionModal(r, v.trim()); }
+    }, [v]));
+  });
+  return h('span', null, out);
+}
+
+// a red version: what's wrong with it, and take it out of the rule or leave it
+function versionModal(r, version) {
+  var body = h('div', null, [h('p', { class: 'muted' }, ['Loading the advisories...'])]);
+  var box = modal(r.pattern + ' ' + version, body);
+  api('GET', '/rules/' + r.id + '/advisories?version=' + encodeURIComponent(version)).then(function (d) {
+    var pins = String(r.version_range).split(' || ').map(function (p) { return p.trim(); });
+    var rest = pins.filter(function (p) { return p !== version; });
+    var out = h('div', null, []);
+    var close = h('button', { type: 'button', onclick: function () { box.close(); } }, ['Close']);
+    var remove = null;
+    if (can('rules:write') && rest.length) {
+      remove = h('button', {
+        type: 'button', class: 'danger',
+        onclick: function () {
+          // the rest of the rule rides along untouched, only the range changes
+          api('PATCH', '/rules/' + r.id, { version_range: rest.join(' || ') })
+            .then(function () { box.close(); route(); })
+            .catch(function (e) { out.appendChild(notice(e.message, 'err')); });
+        }
+      }, ['Remove ' + version + ' from this rule']);
+    }
+    box.set(h('div', null, [
+      table(['Severity', 'Advisory', 'Summary', 'Fixed in'], d.advisories.map(function (a) {
+        var sev = String(a.severity || 'unrated');
+        return [
+          h('span', { class: /CRITICAL|HIGH/i.test(sev) ? 'deny' : 'warn' }, [sev.toLowerCase()]),
+          [a.cves, a.advisories].filter(Boolean).join(' ').slice(0, 200),
+          a.summary || '',
+          a.fixed_in || ''
+        ];
+      })),
+      h('p', { class: 'hint' }, [
+        rest.length
+          ? 'Removing it leaves the rule pinned to ' + rest.length + ' other version' + (rest.length > 1 ? 's' : '') + ', everything else about the rule stays.'
+          : 'This is the only version the rule pins. Taking it out would make the rule cover every version, so disable or delete the rule instead.'
+      ]),
+      out,
+      h('div', null, [remove, close])
+    ]));
+  }).catch(function (e) { box.set(notice(e.message, 'err')); });
 }
 
 // who a rule covers, in words
@@ -309,7 +380,8 @@ function viewRules(body) {
         ]),
         h('div', { class: 'row' }, [
           h('div', null, [h('label', null, ['Application']), appEdit]),
-          h('div', null, [h('label', null, ['Environment']), envEdit])
+          h('div', null, [h('label', null, ['Environment']), envEdit]),
+          expiresEdit.el
         ]),
         h('label', null, ['Version range']), range,
         used,
@@ -322,7 +394,6 @@ function viewRules(body) {
           'Clearing the box makes the rule cover every version of the package.'
         ]),
         h('label', null, ['Note']), note,
-        expiresEdit.el,
         h('label', null, [enabled, ' Enabled']),
         h('div', null, [
           h('button', {
@@ -410,7 +481,7 @@ function viewRules(body) {
           tick,
           ecoPkg(r.ecosystem || 'npm', r.pattern),
           h('span', { class: r.kind === 'allow' ? 'allow' : 'deny' }, [r.kind + (r.enabled ? '' : ' (off)') + (Number(r.expired) ? ' (expired)' : '')]),
-          r.version_range || 'any',
+          versionsCell(r),
           h('span', { class: r.application_id || r.environment_id ? null : 'muted' }, [scopeLabel(r.application_name, r.environment_name, r.application_id, r.environment_id)]),
           cacheCell(r),
           vulnCell(r),

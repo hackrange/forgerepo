@@ -11,6 +11,7 @@ const { actorOf } = require('../../lib/actor');
 const { idParam, str, boolFlag, intIn, oneOf, paging } = require('../../lib/validate');
 const { ruleScope } = require('../shared/scope');
 const { parseRuleFilters } = require('./filters');
+const rulesRepo = require('../../db/repositories/rules');
 
 const router = express.Router();
 
@@ -43,6 +44,20 @@ router.post(
     const scope = await ruleScope(body);
     const rule = await rules.save(actorOf(req), { ecosystem, pattern, kind, range, note, priority, enabled, expires, scope });
     res.status(201).json({ ok: true, rule });
+  })
+);
+
+// the findings behind one red version. the version has to be one the rule pins, nothing else gets looked up
+router.get(
+  '/rules/:id/advisories',
+  auth.requirePerm('rules:read'),
+  wrap(async (req, res) => {
+    const rule = await rules.get(idParam(req.params.id));
+    const version = str(req.query.version, 128, 'version');
+    const pins = String(rule.version_range || '').split(' || ').map((v) => v.trim());
+    if (!version || !pins.includes(version)) fail(400, 'that version is not one this rule pins');
+    res.json({ rule: { id: rule.id, ecosystem: rule.ecosystem, pattern: rule.pattern, version_range: rule.version_range }, version,
+      advisories: await rulesRepo.advisoriesFor(rule, version) });
   })
 );
 

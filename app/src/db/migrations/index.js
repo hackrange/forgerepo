@@ -43,7 +43,8 @@ const STEPS = [
   '034-upstream-options',
   '035-known-malicious-scanner',
   '036-drop-allow-publish',
-  '037-rule-expiry'
+  '037-rule-expiry',
+  '038-rules-from-api-keys'
 ];
 
 /**

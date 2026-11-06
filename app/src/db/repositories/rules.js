@@ -3,10 +3,10 @@
 // values are always placeholders. column names only ever come from the allowlist below
 
 const db = require('../../db');
-const { CACHE_TYPES, CACHED_VERSIONS, CACHED_PIN_COUNT, PINNED_COUNT, FULLY_CACHED, VULN_COUNT, VULN_WORST } = require('./rule-columns');
+const { CACHE_TYPES, CACHED_VERSIONS, CACHED_PIN_COUNT, PINNED_COUNT, FULLY_CACHED, VULN_COUNT, VULN_WORST, VULN_VERSIONS } = require('./rule-columns');
 
 const WRITABLE = new Set([
-  'ecosystem', 'pattern', 'kind', 'version_range', 'application_id', 'environment_id', 'note', 'priority', 'enabled', 'expires_at', 'created_by'
+  'ecosystem', 'pattern', 'kind', 'version_range', 'application_id', 'environment_id', 'note', 'priority', 'enabled', 'expires_at', 'api_key_id', 'created_by'
 ]);
 
 // expires_at goes in as unix seconds (or null) so the db turns it into its own clock, the same one NOW() reads
@@ -109,13 +109,14 @@ const SORTS = { pattern: 'pattern', kind: 'kind', priority: 'priority', created:
 const LIST_COLUMNS = `id, ecosystem, pattern, kind, version_range, application_id, environment_id,
               (SELECT name FROM applications WHERE id = rules.application_id) AS application_name,
               (SELECT name FROM environments WHERE id = rules.environment_id) AS environment_name,
-              note, priority, enabled, created_by, created_at, updated_at,
+              note, priority, enabled, created_by, created_at, updated_at, api_key_id,
               UNIX_TIMESTAMP(expires_at) AS expires_ts, (NOT ${LIVE}) AS expired,
               ${CACHED_VERSIONS} AS cached_versions,
               ${CACHED_PIN_COUNT} AS cached_pins,
               ${PINNED_COUNT} AS pinned_versions,
               ${VULN_COUNT} AS vuln_findings,
-              ${VULN_WORST} AS vuln_worst`;
+              ${VULN_WORST} AS vuln_worst,
+              ${VULN_VERSIONS} AS vuln_versions`;
 
 async function page(filters, { sort, dir, limit, offset }) {
   const { clause, params } = filterClause(filters);
@@ -216,7 +217,73 @@ function exactAllowPatterns(ecosystem) {
   return db.query(`SELECT pattern FROM rules WHERE ecosystem = ? AND kind = 'allow' AND enabled = 1 AND ${LIVE} AND pattern NOT LIKE '%*%'`, [ecosystem]);
 }
 
+// what the scan found for one version a rule pins, for the popup on a red version
+function advisoriesFor(rule, version) {
+  return db.query(
+    `SELECT id, severity, cves, advisories, summary, fixed_in, first_seen, last_seen, acknowledged
+       FROM cve_findings WHERE ecosystem = ? AND package_name = ? AND version = ?
+      ORDER BY FIELD(UPPER(severity), 'CRITICAL', 'HIGH', 'MODERATE', 'MEDIUM', 'LOW') , id`,
+    [rule.ecosystem || 'npm', rule.pattern, version]
+  );
+}
+
+// ---------------------------------------------------------------- rules an API key owns
+
+// the key id is in every query. a key asking about rule 12 that isn't its own gets the same nothing as a missing one
+const KEY_COLUMNS = `id, ecosystem, pattern, kind, version_range, note, priority, enabled, created_by, created_at, updated_at,
+  application_id, environment_id,
+  (SELECT name FROM applications WHERE id = rules.application_id) AS application_name,
+  (SELECT name FROM environments WHERE id = rules.environment_id) AS environment_name,
+  UNIX_TIMESTAMP(expires_at) AS expires_ts, (NOT ${LIVE}) AS expired`;
+
+function ownedBy(keyId, id) {
+  return db.one(`SELECT ${KEY_COLUMNS} FROM rules WHERE id = ? AND api_key_id = ?`, [id, keyId]);
+}
+
+// f: { ecosystem, kind, pattern, state: active|expired } already checked
+async function pageOwnedBy(keyId, f, { limit, offset }) {
+  const where = ['api_key_id = ?'];
+  const params = [keyId];
+  if (f.ecosystem) { where.push('ecosystem = ?'); params.push(f.ecosystem); }
+  if (f.kind) { where.push('kind = ?'); params.push(f.kind); }
+  if (f.pattern) { where.push('pattern = ?'); params.push(f.pattern); }
+  if (f.state === 'active') where.push(LIVE);
+  else if (f.state === 'expired') where.push(`NOT ${LIVE}`);
+  const clause = `WHERE ${where.join(' AND ')}`;
+  const rows = await db.query(`SELECT ${KEY_COLUMNS} FROM rules ${clause} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
+  const total = await db.one(`SELECT COUNT(*) AS n FROM rules ${clause}`, params);
+  return { rows, total: Number(total.n) };
+}
+
+// the same unique key as a person's rule, with who owns it, so the api can tell its own from somebody else's
+function ownerOfKey(k) {
+  return db.one(
+    `SELECT id, api_key_id FROM rules WHERE ecosystem = ? AND pattern = ? AND kind = ? AND version_range = ?
+        AND application_id = ? AND environment_id = ?`,
+    [k.ecosystem, k.pattern, k.kind, k.version_range, k.application_id, k.environment_id]
+  );
+}
+
+async function insertForKey(fields) {
+  const columns = Object.keys(fields);
+  checkColumns(columns);
+  const res = await db.query(`INSERT INTO rules (${columns.join(', ')}) VALUES (${columns.map(slot).join(', ')})`, columns.map((c) => fields[c]));
+  return res.insertId;
+}
+
+async function updateForKey(keyId, id, p) {
+  return (await db.query(
+    'UPDATE rules SET note = ?, priority = ?, enabled = ?, expires_at = FROM_UNIXTIME(?) WHERE id = ? AND api_key_id = ?',
+    [p.note, p.priority, p.enabled, p.expires_ts, id, keyId]
+  )).affectedRows;
+}
+
+async function removeForKey(keyId, id) {
+  return (await db.query('DELETE FROM rules WHERE id = ? AND api_key_id = ?', [id, keyId])).affectedRows;
+}
+
 module.exports = {
+  advisoriesFor, ownedBy, pageOwnedBy, ownerOfKey, insertForKey, updateForKey, removeForKey,
   LIVE, upsertSql, upsert, upsertMany, filterClause, imageCandidates, page, byId, byKey, byIds, update, remove, removeMany, setEnabled, extend, setKind, removeEcosystems,
   enabledForEngine, exactAllowPatterns
 };

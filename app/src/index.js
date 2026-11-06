@@ -131,7 +131,7 @@ app.use(async (req, res, next) => {
 app.use(async (req, res, next) => {
   try {
     if (!db.settings.getBool('registry_acl_enabled')) return next();
-    if (portal.isGated(req.path)) return next();
+    if (portal.isGated(req.path) || portal.isRestApi(req.path)) return next();
 
     const ip = auth.clientIp(req);
     if (await ipacl.registryAllowed(ip)) return next();
@@ -187,6 +187,9 @@ app.get('/_admin/*', sendPortal);
 
 // json only, so no cross-site form posts. strangers get 32kb, signed in 1 MB, imports more (see api/shared/json-body)
 const { jsonBody } = require('./api/shared/json-body');
+
+// REST API for other products, keys not sessions. before /_api so it never sees a cookie or the portal's csrf
+app.use('/_api/v1', require('./api/v1'));
 
 app.use(
   '/_api',

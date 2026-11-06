@@ -87,5 +87,10 @@ const VULN_COUNT = `(SELECT COUNT(*) FROM cve_findings f WHERE ${VULN_MATCH})`;
 const VULN_WORST = `(SELECT f.severity FROM cve_findings f WHERE ${VULN_MATCH}
      ORDER BY ${sevRank('f.severity')} DESC LIMIT 1)`;
 
+// which of the pinned versions have findings, "0.21.1=HIGH,0.21.1=MEDIUM,1.5.1=LOW", so the list can paint each one.
+// only for exact pin lists, a real range has no single version to paint
+const VULN_VERSIONS = `CASE WHEN ${PIN_LIST} THEN (SELECT GROUP_CONCAT(DISTINCT CONCAT(f.version, '=', f.severity) SEPARATOR ',')
+       FROM cve_findings f WHERE f.ecosystem = rules.ecosystem AND f.package_name = rules.pattern
+        AND CONCAT(' || ', rules.version_range, ' || ') LIKE CONCAT('% || ', f.version, ' || %')) ELSE NULL END`;
 
-module.exports = { CACHE_TYPES, PIN_LIST, PIN_COUNT, CACHED_PINS, NPM_CACHED_ANY, PYPI_FILES, PYPI_PINS, PYPI_PIN_LIST, PYPI_PIN_COUNT, PYPI_CACHED_PINS, PYPI_CACHED_ANY, CACHED_VERSIONS, CACHED_PIN_COUNT, PINNED_COUNT, FULLY_CACHED, VULN_MATCH, VULN_COUNT, VULN_WORST };
+module.exports = { VULN_VERSIONS, CACHE_TYPES, PIN_LIST, PIN_COUNT, CACHED_PINS, NPM_CACHED_ANY, PYPI_FILES, PYPI_PINS, PYPI_PIN_LIST, PYPI_PIN_COUNT, PYPI_CACHED_PINS, PYPI_CACHED_ANY, CACHED_VERSIONS, CACHED_PIN_COUNT, PINNED_COUNT, FULLY_CACHED, VULN_MATCH, VULN_COUNT, VULN_WORST };

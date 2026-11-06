@@ -95,6 +95,29 @@ CREATE TABLE IF NOT EXISTS tokens (
     CONSTRAINT fk_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- keys for the REST API at /_api/v1, so another product can file temporary exceptions. admins make them.
+-- hash only, the key itself is shown once. allowed_cidrs is required, a key works from those networks and nowhere else
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    prefix VARCHAR(16) NOT NULL,
+    key_hash CHAR(64) NOT NULL,
+    -- comma separated: rules:read, rules:write
+    scopes VARCHAR(128) NOT NULL DEFAULT 'rules:read,rules:write',
+    -- newline separated, normalized, at least one
+    allowed_cidrs TEXT NOT NULL,
+    -- the highest priority a rule from this key may carry, so a key can't outrank the people
+    max_priority INT NOT NULL DEFAULT 0,
+    expires_at DATETIME NULL,
+    revoked_at DATETIME NULL,
+    revoked_by VARCHAR(64) NULL,
+    created_by VARCHAR(64) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME NULL,
+    last_used_ip VARCHAR(45) NULL,
+    UNIQUE KEY uq_api_keys_hash (key_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- allow list and deny list share a table, `kind` says which is which
 CREATE TABLE IF NOT EXISTS rules (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -112,12 +135,15 @@ CREATE TABLE IF NOT EXISTS rules (
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     -- NULL = forever. past it the engine acts like the rule isn't there, the row stays so you can see what lapsed
     expires_at DATETIME NULL,
+    -- which API key made it. 0 = a person did. a key only ever sees and changes its own
+    api_key_id INT UNSIGNED NOT NULL DEFAULT 0,
     created_by VARCHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_rules_scope (ecosystem, pattern, kind, version_range, application_id, environment_id),
     KEY idx_rules_enabled (enabled),
     KEY idx_rules_expires (expires_at),
+    KEY idx_rules_api_key (api_key_id),
     KEY idx_rules_scope (application_id, environment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

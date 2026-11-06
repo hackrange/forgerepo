@@ -230,6 +230,7 @@ fieldset .hint { max-width: none; }
 .small { font-size: .8rem; }
 .allow { color: var(--ok); }
 .deny { color: var(--bad); }
+.vuln-ver { font-weight: 600; text-decoration: underline dotted; cursor: help; }
 .warn { color: var(--warn); }
 .right { float: right; }
 

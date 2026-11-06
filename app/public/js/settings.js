@@ -11,6 +11,7 @@ import { labelEditor } from './labels.js';
 import { ecoName, ecoPkg } from './ecosystems.js';
 import { upstreamsPanel } from './registries.js';
 import { boot } from './routing.js';
+import { apiPanel } from './api-keys.js';
 
 // which tab was last on screen, kept out here so a redraw comes back to it
 var settingsTab = 'policy';
@@ -57,7 +58,10 @@ function viewSettings(body) {
       { id: 'sso', label: 'SSO' },
       { id: 'access', label: 'Access' },
       { id: 'apps', label: 'Applications' }
-    ], function (id) { settingsTab = id; });
+    ].concat(can('apikeys:manage') ? [{ id: 'api', label: 'API' }] : []), function (id) { settingsTab = id; });
+
+    // admins only, and the server checks that again on every call
+    if (tab.api) apiPanel(tab.api);
 
     var fields = {};
     function field(key, label, hint, type, options) {

@@ -63,6 +63,7 @@ router.use(require('./review/routes'));
 router.use(require('./users/routes'));
 router.use(require('./applications/routes'));
 router.use(require('./tokens/routes'));
+router.use(require('./api-keys/routes'));
 router.use(require('./settings/routes'));
 router.use(require('./storage/routes'));
 router.use(require('./branding/routes'));
