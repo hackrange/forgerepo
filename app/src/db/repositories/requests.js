@@ -66,6 +66,16 @@ function bump(id) {
   return db.query('UPDATE requests SET hits = hits + 1, updated_at = NOW() WHERE id = ?', [id]);
 }
 
+// what is left of an exact list after the clean versions were approved, flagged for a person, same asker
+function splitFrom(row, range, reason, autoNote) {
+  return db.query(
+    `INSERT INTO requests (ecosystem, package_name, version_range, user_id, source, requested_by, token_name, ip, reason, auto_state, auto_note, auto_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'flagged', ?, NOW())`,
+    [row.ecosystem || 'npm', row.package_name, range, row.user_id, row.source || 'portal', row.requested_by, row.token_name, row.ip,
+      String(reason).slice(0, 1000), String(autoNote || '').slice(0, 500)]
+  );
+}
+
 function createFromPortal(r) {
   return db.query(
     `INSERT INTO requests (ecosystem, package_name, version_range, user_id, source, requested_by, ip, reason)
@@ -182,6 +192,7 @@ function pendingBefore(since) {
 
 module.exports = {
   reopenApproved,
+  splitFrom,
   page, byId, byIds, openFor, bump, createFromPortal, pendingFromRegistry, foldIn, createFromRegistry,
   withdraw, settle, summaries, removeMany, markCleared, decidedSince, pendingSince, pendingBefore
 };

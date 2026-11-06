@@ -72,8 +72,8 @@ router.post(
     let checking = require('../../services/auto-approve').waitNote(type.id);
     // "any" is one version, say which, before they go looking for 5.0.0 in their lockfile
     const pin = require('../../services/version-pin');
-    if (pin.isAnyRange(range)) {
-      const p = await pin.preview(type.id, name);
+    if (pin.rangeKind(range, type.id) !== 'exact') {
+      const p = await pin.preview(type.id, name, range);
       checking = `${require('../../services/auto-approve').ANY_NOTE} ${p.version ? `Right now that is ${p.said}.` : p.why ? `Right now: ${p.why}.` : ''} ${checking}`;
     }
     if (outcome.bumped) return res.json({ ok: true, id: outcome.bumped, note: `You already had one open for this, it was bumped. ${checking}` });
@@ -91,7 +91,8 @@ router.get(
     if (!type.validName(raw)) fail(400, type.badName);
     const gate = await auth.rateLimit(`preview:${req.user.id}`, 60, 10 * 60000);
     if (!gate.ok) fail(429, 'slow down a moment');
-    const p = await require('../../services/version-pin').preview(type.id, type.name(raw));
+    const range = req.query.range ? checkRange(String(req.query.range), type.id) : '';
+    const p = await require('../../services/version-pin').preview(type.id, type.name(raw), range);
     res.json({ ...p, note: require('../../services/auto-approve').ANY_NOTE, cooling: require('../../services/auto-approve').coolingNote().trim() });
   })
 );

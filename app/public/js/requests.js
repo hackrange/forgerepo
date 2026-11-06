@@ -453,16 +453,17 @@ function requestForm(types) {
   // what "any" turns into, looked up as you type so nobody is surprised by the pin
   var anyHint = h('p', { class: 'hint' }, ['']);
   var asked = 0;
-  var ANY = ['', '*', 'x', 'x.x.x', 'latest', 'any', '>=0', '>=0.0.0'];
+  // the server says whether the range is an exact list (kept as typed) or something that gets pinned
   function previewAny() {
     var n = name.value.trim();
-    var isAny = ANY.indexOf(range.value.trim().toLowerCase()) >= 0;
-    if (!n || !isAny) { anyHint.textContent = ''; return; }
+    if (!n) { anyHint.textContent = ''; return; }
     var mine = ++asked;
     anyHint.textContent = 'Looking up which version that would be...';
-    api('GET', '/requests/preview?ecosystem=' + encodeURIComponent(type ? type.value : 'npm') + '&name=' + encodeURIComponent(n))
+    api('GET', '/requests/preview?ecosystem=' + encodeURIComponent(type ? type.value : 'npm') + '&name=' + encodeURIComponent(n) +
+      (range.value.trim() ? '&range=' + encodeURIComponent(range.value.trim()) : ''))
       .then(function (d) {
         if (mine !== asked) return;
+        if (d.kind === 'exact') { anyHint.textContent = 'Exact versions are approved as you typed them.' + (d.cooling ? ' ' + d.cooling : ''); return; }
         anyHint.textContent = d.note + ' ' + (d.version ? 'For ' + n + ' that is ' + d.said + '.' : d.said ? 'For ' + n + ' that is ' + d.said + '.' : d.why ? 'Right now: ' + d.why + '.' : '') +
           (d.cooling ? ' ' + d.cooling : '');
       })

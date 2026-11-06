@@ -113,9 +113,10 @@ async function chooseVersions(eco, name, range) {
     else all = all.filter((v) => v.listed && !kind.version.isPrerelease(v.version));
     const ready = cooloff.exempt(name) ? all : all.filter((v) => !cooloff.reasonFor(v.published));
     if (!ready.length) return all.length ? { cooling: 'every matching version is still cooling off' } : { stop: 'no version matches what was asked for' };
-    if (exact && ready.length < all.length) return { cooling: `${all.filter((v) => !ready.includes(v)).map((v) => v.version).join(', ')} is still cooling off` };
+    // an exact list goes ahead with what's ready, the cooling ones are handed back for a person
+    const leftK = exact ? all.filter((v) => !ready.includes(v)).map((v) => ({ version: v.version, why: cooloff.reasonFor(v.published) || 'still cooling off' })) : [];
     ready.sort((a, b) => kind.version.compare(b.version, a.version));
-    return { versions: (exact ? ready : [ready[0]]).map((v) => v.version), newest: ready.slice(0, CLEAN_LOOK).map((v) => v.version) };
+    return { versions: (exact ? ready : [ready[0]]).map((v) => v.version), newest: ready.slice(0, CLEAN_LOOK).map((v) => v.version), coolingLeft: leftK };
   }
   if (eco === 'pypi') {
     const pypi = require('../registry/pypi/upstream');
@@ -130,9 +131,9 @@ async function chooseVersions(eco, name, range) {
     const times = cooloff.mergeJsonTimes(new Map(), releases, pypiVersion.normalize || ((v) => v));
     const ready = all.filter((v) => !cooloff.exempt(name) ? !cooloff.pypiReason(times, v, pypiVersion.normalize || ((x) => x)) : true);
     if (!ready.length) return all.length ? { cooling: `every matching release is still cooling off` } : { stop: 'no release matches what was asked for' };
-    if (exact && ready.length < all.length) return { cooling: `${all.filter((v) => !ready.includes(v)).join(', ')} is still cooling off` };
+    const leftP = exact ? all.filter((v) => !ready.includes(v)).map((v) => ({ version: v, why: cooloff.pypiReason(times, v, pypiVersion.normalize || ((x) => x)) || 'still cooling off' })) : [];
     ready.sort((a, b) => pypiVersion.compare(b, a));
-    return { versions: exact ? ready : [ready[0]], newest: ready.slice(0, CLEAN_LOOK) };
+    return { versions: exact ? ready : [ready[0]], newest: ready.slice(0, CLEAN_LOOK), coolingLeft: leftP };
   }
   const npm = require('../registry/npm/upstream');
   const { doc } = await npm.getPackument(name, 'full');
@@ -147,19 +148,16 @@ async function chooseVersions(eco, name, range) {
   const cooling = cooloff.npmExclusions(name, doc);
   const ready = all.filter((v) => !cooling.has(v));
   if (!ready.length) return all.length ? { cooling: `${cooling.get(all[0]) || 'every matching version is still cooling off'}` } : { stop: 'no version matches what was asked for' };
-  if (exact && ready.length < all.length) {
-    const young = all.filter((v) => cooling.has(v));
-    return { cooling: `${young.join(', ')}: ${cooling.get(young[0])}` };
-  }
+  const leftN = exact ? all.filter((v) => cooling.has(v)).map((v) => ({ version: v, why: cooling.get(v) })) : [];
   ready.sort(semver.rcompare);
-  return { versions: exact ? ready : [ready[0]], newest: ready.slice(0, CLEAN_LOOK), doc };
+  return { versions: exact ? ready : [ready[0]], newest: ready.slice(0, CLEAN_LOOK), doc, coolingLeft: leftN };
 }
 
 // "any version" means one version: the newest that is past its cool-off and has no known advisory. newer ones that do
 // are skipped and named, so whoever asked knows why they got 4.17.21 and not 5.0.0. none of the newest few clean = the
 // newest, and the usual check flags it for a person. the advisory feed not answering = the newest, unknown, a person looks
-async function chooseCurrent(eco, name) {
-  const c = await chooseVersions(eco, name, '');
+async function chooseCurrent(eco, name, range = '') {
+  const c = await chooseVersions(eco, name, range);
   if (c.stop || c.wait || c.cooling || eco === 'oci') return c;
   const look = c.newest && c.newest.length ? c.newest : c.versions;
   const adv = await advisoriesFor(eco, name, look);
@@ -310,9 +308,11 @@ async function gather(row) {
     const squat = await require('../policy/typosquat').check(eco, name).catch(() => null);
     if (squat) return { stop: `the name looks like ${squat.lookalike} (${squat.technique}), a person has to look` };
   }
-  const chosen = require('./version-pin').isAnyRange(row.version_range) && eco !== 'oci'
-    ? await chooseCurrent(eco, name)
-    : await chooseVersions(eco, name, row.version_range);
+  // any version, or a range like ^1.2.0: the newest clean one in it. an exact list (1.2.3 || 1.4.5) is checked as asked
+  const how = require('./version-pin').rangeKind(row.version_range, eco);
+  const chosen = how === 'exact' || eco === 'oci'
+    ? await chooseVersions(eco, name, how === 'any' ? '' : row.version_range)
+    : await chooseCurrent(eco, name, how === 'any' ? '' : row.version_range);
   // too new to go out: a person reviews it, it doesn't sit waiting for the clock and approve itself later
   if (chosen.cooling) return { stop: `${chosen.cooling}, a person has to review a version that is still cooling off` };
   if (chosen.stop || chosen.wait) return chosen;
@@ -321,19 +321,20 @@ async function gather(row) {
   const versions = [];
   for (const version of chosen.versions) {
     const v = { version };
+    // no break on a bad one: an exact list gets an answer for each version, the clean ones can still go through
     if (await killswitch.check(eco, name, version)) {
       versions.push({ ...v, killed: true });
-      break;
+      continue;
     }
     const pinned = await policy.checkVersion(name, version, adapter);
     if (pinned.rule && pinned.rule.kind === 'deny') {
       versions.push({ ...v, denied: pinned.reason });
-      break;
+      continue;
     }
     if (eco !== 'oci') v.license = await licenseProblem(eco, name, version);
     if (v.license) {
       versions.push(v);
-      break;
+      continue;
     }
     if (eco === 'oci') Object.assign(v, await imageFacts(name, version));
     else {
@@ -342,7 +343,7 @@ async function gather(row) {
     }
     versions.push(v);
   }
-  return { versions };
+  return { versions, coolingLeft: chosen.coolingLeft || [] };
 }
 
 // the rule a pin writes: 4.17.21 for npm, ==2.32.3 for PyPI, the tag itself for an image
@@ -374,9 +375,12 @@ async function review(row) {
   } catch (err) {
     facts = { wait: `could not check it right now: ${String(err.message || err).slice(0, 200)}` };
   }
-  const result = decide(facts);
   const fresh = await requests.byId(row.id);
-  if (!fresh || fresh.status !== 'pending') return result;
+  if (!fresh || fresh.status !== 'pending') return decide(facts);
+  // an exact list (1.2.3 || 1.4.5): what is clean and old enough is approved, the rest becomes its own request for a person
+  const split = on() ? await splitList(fresh, facts) : null;
+  if (split) return split;
+  const result = decide(facts);
   if (result.outcome === 'approve' && on()) {
     const { range, whole } = await approvalRange(fresh, facts.versions.map((v) => v.version));
     const note = `auto approved: ${result.note}${whole ? ', any version (each one is scanned before it is served)' : `, pinned to ${range}`}`;
@@ -393,6 +397,39 @@ async function review(row) {
     await mark(row.id, result.outcome === 'wait' ? 'waiting' : 'flagged', result.note);
   }
   return result;
+}
+
+// null = not a list worth splitting, decide it whole
+async function splitList(row, facts) {
+  const eco = row.ecosystem || 'npm';
+  if (eco === 'oci' || facts.stop || facts.wait || !facts.versions) return null;
+  if (require('./version-pin').rangeKind(row.version_range, eco) !== 'exact') return null;
+  const cooling = facts.coolingLeft || [];
+  if (facts.versions.length + cooling.length < 2) return null;
+  const per = facts.versions.map((v) => ({ version: v.version, d: decide({ versions: [v] }) }));
+  const waiting = per.find((p) => p.d.outcome === 'wait');
+  if (waiting) {
+    await mark(row.id, 'waiting', waiting.d.note);
+    return waiting.d;
+  }
+  const good = per.filter((p) => p.d.outcome === 'approve').map((p) => p.version);
+  const left = [
+    ...per.filter((p) => p.d.outcome !== 'approve').map((p) => ({ version: p.version, why: p.d.note.startsWith(`${p.version}: `) ? p.d.note.slice(p.version.length + 2) : p.d.note })),
+    ...cooling.map((c) => ({ version: c.version, why: `${c.why}, a person has to review a version that is still cooling off` }))
+  ];
+  if (!good.length || !left.length) return null;
+  const range = rangeFor(eco, good);
+  const leftRange = rangeFor(eco, left.map((l) => l.version));
+  const leftNote = left.map((l) => `${l.version}: ${l.why}`).join('; ').slice(0, 400);
+  const note = `auto approved: clean and past the cool-off, pinned to ${range}. Left for a person in a new request: ${leftRange}`;
+  const won = await require('./requests').claimAuto(ACTOR, row, note, range);
+  if (!won) return { outcome: 'approve', note };
+  await mark(row.id, 'approved', note);
+  const rest = await requests.splitFrom(row, leftRange, `split from request #${row.id}, the rest of it was approved`, leftNote);
+  await auth.audit(null, 'auto-approve', null, 'request.approve.auto', `${eco}:${row.package_name}`,
+    `${range}, the rest (${leftRange}) went to request #${rest.insertId} for a person`);
+  log.info(`auto approved ${eco}:${row.package_name} ${range}, ${leftRange} left for a person`);
+  return { outcome: 'approve', note };
 }
 
 // ---------------------------------------------------------------- the worker
@@ -461,8 +498,8 @@ function coolingNote() {
 }
 
 // what "any version" turns into, said to whoever asked for it
-const ANY_NOTE = 'Asking for any version approves one version, not all of them: the newest one with no known advisories. ' +
-  'A newer release has to be asked for again when you need it.';
+const ANY_NOTE = 'Asking for any version, or a range like ^1.2.0, approves one version, not all of them: the newest one ' +
+  '(inside the range, if you gave one) with no known advisories. A newer release has to be asked for again when you need it.';
 
 async function set(value, { reason, user, userId, ip }) {
   const want = Boolean(value);
@@ -504,4 +541,4 @@ function refusalHint(ecosystem, reason) {
     ` An approval allows one version, the newest with no known advisories, so pin that version if your install asked for any.${coolingNote()}`;
 }
 
-module.exports = { ANY_NOTE, CLEAN_LOOK, on, describe, decide, chooseVersions, chooseCurrent, coolingNote, rangeFor, approvalRange, waitNote, refusalHint, set, sweep, nudge, review, RECHECK_MINUTES };
+module.exports = { splitList, ANY_NOTE, CLEAN_LOOK, on, describe, decide, chooseVersions, chooseCurrent, coolingNote, rangeFor, approvalRange, waitNote, refusalHint, set, sweep, nudge, review, RECHECK_MINUTES };
