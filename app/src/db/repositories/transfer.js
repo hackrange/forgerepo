@@ -6,7 +6,10 @@ const db = require('../../db');
 const { sevRank } = require('./severity');
 
 // scope goes out by name, ids mean nothing on another box
-const RULE_COLUMNS = ['ecosystem', 'pattern', 'kind', 'version_range', 'application', 'environment', 'note', 'priority', 'enabled'];
+const RULE_COLUMNS = ['ecosystem', 'pattern', 'kind', 'version_range', 'application', 'environment', 'note', 'priority', 'enabled', 'expires_at'];
+
+// out in UTC whatever clock the db keeps, blank = never. no tz tables needed
+const EXPIRES_UTC = "IF(expires_at IS NULL, '', DATE_FORMAT(DATE_ADD(expires_at, INTERVAL TIMESTAMPDIFF(SECOND, NOW(), UTC_TIMESTAMP()) SECOND), '%Y-%m-%dT%H:%i:%sZ')) AS expires_at";
 
 const FINDING_COLUMNS = ['ecosystem', 'package_name', 'version', 'severity', 'cves', 'advisories', 'summary',
   'fixed_in', 'first_seen', 'last_seen', 'acknowledged'];
@@ -19,7 +22,7 @@ function rulesExportSql(clause) {
   return `SELECT ecosystem, pattern, kind, version_range,
                  COALESCE((SELECT name FROM applications WHERE id = rules.application_id), '') AS application,
                  COALESCE((SELECT name FROM environments WHERE id = rules.environment_id), '') AS environment,
-                 note, priority, enabled
+                 note, priority, enabled, ${EXPIRES_UTC}
             FROM rules ${clause} ORDER BY ecosystem, kind, pattern, id`;
 }
 
@@ -38,7 +41,7 @@ async function countFindings(clause, params) {
 }
 
 // the whole config file carries rules without scope, same as it always has
-const CONFIG_RULES_SQL = 'SELECT ecosystem, pattern, kind, version_range, note, priority, enabled FROM rules ORDER BY ecosystem, kind, pattern, id';
+const CONFIG_RULES_SQL = `SELECT ecosystem, pattern, kind, version_range, note, priority, enabled, ${EXPIRES_UTC} FROM rules ORDER BY ecosystem, kind, pattern, id`;
 
 // lower-cased name -> id, looked up once per import
 async function labelIds(key) {

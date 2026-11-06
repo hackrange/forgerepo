@@ -48,6 +48,8 @@ const headers = (up, extra) => upstreams.headersFor(up, { 'user-agent': USER_AGE
 // the text inside every <tag>...</tag>, for the few plain elements maven-metadata.xml has. no entities, no nesting
 function texts(xml, tag) {
   const out = [];
+  // tag is a literal from the callers below
+  // nosemgrep: detect-non-literal-regexp
   const re = new RegExp(`<${tag}>\\s*([^<>]{1,200}?)\\s*</${tag}>`, 'g');
   let m;
   while ((m = re.exec(xml)) && out.length < MAX_VERSIONS) out.push(m[1]);

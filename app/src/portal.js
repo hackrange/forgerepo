@@ -7,7 +7,7 @@
 // case insensitive, same as express matches /_admin
 
 const fs = require('fs');
-const path = require('path');
+const { inside } = require('./lib/safepath');
 const crypto = require('crypto');
 const config = require('./config');
 
@@ -78,11 +78,11 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 // page rendered per address. assets carry a content hash so a new page never gets a stale script.
 // title() is the name in Settings, favicon() an uploaded one or null
 function portalPage(publicDir, { title = () => null, favicon = async () => null } = {}) {
-  const template = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+  const template = fs.readFileSync(inside(publicDir, 'index.html'), 'utf8');
   const versions = {};
   for (const file of ['style.css', 'app.js', 'icon.svg']) {
     try {
-      versions[file] = crypto.createHash('sha256').update(fs.readFileSync(path.join(publicDir, file))).digest('hex').slice(0, 12);
+      versions[file] = crypto.createHash('sha256').update(fs.readFileSync(inside(publicDir, file))).digest('hex').slice(0, 12);
     } catch (err) {
       versions[file] = config.version;
     }

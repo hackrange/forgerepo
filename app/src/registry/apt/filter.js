@@ -11,6 +11,7 @@
 const crypto = require('crypto');
 const fsp = require('fs/promises');
 const path = require('path');
+const { inside } = require('../../lib/safepath');
 const zlib = require('zlib');
 const config = require('../../config');
 const policy = require('../../policy');
@@ -27,7 +28,7 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 async function keepBytes(buf) {
   await fsp.mkdir(dir(), { recursive: true });
   const h = sha(buf);
-  const file = path.join(dir(), h);
+  const file = inside(dir(), h);
   if (!(await fsp.stat(file).then(() => true, () => false))) {
     const tmp = `${file}.${process.pid}.tmp`;
     await fsp.writeFile(tmp, buf, { mode: 0o640 });
@@ -122,7 +123,7 @@ async function build(up, name, scope) {
 // a file this box made, by its SHA256, or null
 async function fileFor(h) {
   if (!/^[0-9a-f]{64}$/.test(h)) return null;
-  const file = path.join(dir(), h);
+  const file = inside(dir(), h);
   return (await fsp.stat(file).then(() => true, () => false)) ? file : null;
 }
 

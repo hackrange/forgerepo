@@ -9,7 +9,7 @@ const config = require('../config');
 const log = require('../logger');
 const rules = require('../db/repositories/rules');
 const transfer = require('../db/repositories/transfer');
-const { ruleEcosystem, checkPattern, checkRange } = require('../policy/rulecheck');
+const { ruleEcosystem, checkPattern, checkRange, checkExpiry } = require('../policy/rulecheck');
 const { audit } = require('../lib/actor');
 const { fail } = require('../lib/errors');
 const { str, boolFlag, intIn, oneOf } = require('../lib/validate');
@@ -131,7 +131,8 @@ async function importRules(actor, { mode, dryRun, raw }) {
         environment_id: scopeName(item.environment, envIds, 'environment'),
         note: str(item.note, 512, 'note'),
         priority: intIn(item.priority, -1000, 1000, 0),
-        enabled: boolFlag(item.enabled, true) ? 1 : 0
+        enabled: boolFlag(item.enabled, true) ? 1 : 0,
+        expires_at: checkExpiry(item.expires_at)
       });
     } catch (err) {
       errors.push({ row: index + 1, pattern: item && item.pattern, error: err.message });
@@ -152,9 +153,9 @@ async function importRules(actor, { mode, dryRun, raw }) {
     for (let i = 0; i < valid.length; i += IMPORT_BATCH) {
       const batch = valid.slice(i, i + IMPORT_BATCH).map((rule) => ({ ...rule, created_by: actor.name }));
       await rules.upsertMany(
-        ['ecosystem', 'pattern', 'kind', 'version_range', 'application_id', 'environment_id', 'note', 'priority', 'enabled', 'created_by'],
+        ['ecosystem', 'pattern', 'kind', 'version_range', 'application_id', 'environment_id', 'note', 'priority', 'enabled', 'expires_at', 'created_by'],
         batch,
-        { note: 'values', priority: 'values', enabled: 'values' },
+        { note: 'values', priority: 'values', enabled: 'values', expires_at: 'values' },
         q
       );
       done += batch.length;
@@ -212,6 +213,7 @@ async function importConfig(actor, body) {
           note: str(item.note, 512, 'note'),
           priority: intIn(item.priority, -1000, 1000, 0),
           enabled: boolFlag(item.enabled, true) ? 1 : 0,
+          expires_at: checkExpiry(item.expires_at),
           created_by: actor.name
         });
       } catch (err) {
@@ -219,10 +221,10 @@ async function importConfig(actor, body) {
       }
     }
 
-    const cols = ['ecosystem', 'pattern', 'kind', 'version_range', 'note', 'priority', 'enabled', 'created_by'];
+    const cols = ['ecosystem', 'pattern', 'kind', 'version_range', 'note', 'priority', 'enabled', 'expires_at', 'created_by'];
     for (let i = 0; i < good.length; i += IMPORT_BATCH) {
       const batch = good.slice(i, i + IMPORT_BATCH);
-      await rules.upsertMany(cols, batch, { note: 'values', priority: 'values', enabled: 'values' });
+      await rules.upsertMany(cols, batch, { note: 'values', priority: 'values', enabled: 'values', expires_at: 'values' });
       summary.rules += batch.length;
     }
     policy.invalidate();

@@ -7,6 +7,7 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { sharded } = require('../lib/safepath');
 const crypto = require('crypto');
 const config = require('../config');
 
@@ -25,7 +26,7 @@ function useRoot(dir) {
 // only way a path gets made. not 64 lowercase hex = never touches the fs, no traversal
 function blobPath(sha256) {
   if (!HEX64.test(String(sha256 || ''))) throw new Error('that is not a sha256 digest');
-  return path.join(root, sha256.slice(0, 2), sha256.slice(2, 4), sha256);
+  return sharded(root, sha256);
 }
 
 function tmpDir() {

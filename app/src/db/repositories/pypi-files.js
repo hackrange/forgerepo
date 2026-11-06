@@ -73,7 +73,7 @@ function allFiles() {
 function knownProjects() {
   return db.query(
     `SELECT pattern AS name FROM rules
-      WHERE ecosystem = 'pypi' AND kind = 'allow' AND enabled = 1 AND pattern NOT LIKE '%*%'
+      WHERE ecosystem = 'pypi' AND kind = 'allow' AND enabled = 1 AND (expires_at IS NULL OR expires_at > NOW()) AND pattern NOT LIKE '%*%'
      UNION SELECT project FROM pypi_files
      UNION SELECT project FROM pypi_documents WHERE kind = 'simple'
      ORDER BY 1 LIMIT 100000`

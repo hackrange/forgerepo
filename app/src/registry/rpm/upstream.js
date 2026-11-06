@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { inside, tempFile } = require('../../lib/safepath');
 const zlib = require('zlib');
 const { StringDecoder } = require('string_decoder');
 const db = require('../../db');
@@ -55,6 +56,8 @@ function checkUsable(up) {
 
 const unxml = (s) => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 const attr = (tag, name) => {
+  // name is a literal attribute name
+  // nosemgrep: detect-non-literal-regexp
   const m = new RegExp(`\\s${name}="([^"]*)"`).exec(tag);
   return m ? unxml(m[1]) : null;
 };
@@ -148,7 +151,7 @@ async function repomdSignature(up) {
 // stream a url into a file, checking it against the checksum it is known by. the file path, or it throws
 async function fetchChecked(up, rel, algo, checksum, maxBytes, magic) {
   await fsp.mkdir(workDir, { recursive: true });
-  const tmp = path.join(workDir, `rpm.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`);
+  const tmp = tempFile(workDir, 'rpm');
   let res;
   try {
     res = await safefetch.request(`${up.url}/${rel}`, { headers: headers(up), timeoutMs: 1800000, maxBytes, stream: true });
@@ -195,7 +198,7 @@ async function fetchChecked(up, rel, algo, checksum, maxBytes, magic) {
 const inflight = new Map();
 async function metaFile(up, entry) {
   await fsp.mkdir(dir(), { recursive: true });
-  const file = path.join(dir(), `${entry.checksum}.meta`);
+  const file = inside(dir(), `${entry.checksum}.meta`);
   if (await fsp.stat(file).then(() => true, () => false)) return file;
   if (!upstreamEnabled()) throw httpError(503, `${mode.offlineReason()} and ${entry.href} is not in the cache`);
   if (!inflight.has(file)) {
@@ -247,6 +250,8 @@ async function eachPackage(file, href, onHeader, onBlock) {
 function readBlock(block) {
   if (!/^<package\s[^>]*type="rpm"/.test(block)) return null;
   const tag = (t) => {
+    // t is name or arch, nothing else
+    // nosemgrep: detect-non-literal-regexp
     const m = new RegExp(`<${t}>([^<]*)</${t}>`).exec(block);
     return m ? unxml(m[1]) : null;
   };

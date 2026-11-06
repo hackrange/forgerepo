@@ -277,7 +277,7 @@ uv, poetry and anything else that takes an index address use the same one. With
 a keyring or `.netrc` if you would rather not write it down:
 
 ```
-https://__token__:nrt_xxxxxxxx@your-host/pypi/simple/
+https://__token__:${REPO_TOKEN}@your-host/pypi/simple/
 ```
 
 It speaks the index the way PyPI does: the HTML and JSON project pages (PEP 503

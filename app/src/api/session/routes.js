@@ -87,6 +87,8 @@ router.get(
     if (req.query.error) {
       const said = String(req.query.error_description || req.query.error).slice(0, 200);
       await auth.audit(null, null, auth.clientIp(req), 'login.sso.failed', null, `the provider said: ${said}`);
+      // baseFrom only ever gives back /_admin or /admin, the provider's words ride in the fragment
+      // nosemgrep: gcr-open-redirect
       return res.redirect(302, `${portal.baseFrom(req)}/#login?sso_error=${encodeURIComponent(said)}`);
     }
     try {

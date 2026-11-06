@@ -262,6 +262,8 @@ async function connect() {
 }
 
 async function query(sql, params) {
+  // the one query wrapper. callers pass ? params, sql text is never built from input
+  // nosemgrep: node-mysql-sqli
   const [rows] = await pool.query(sql, params);
   return rows;
 }
@@ -418,6 +420,8 @@ async function transaction(work) {
   try {
     await conn.beginTransaction();
     const result = await work(async (sql, params) => {
+      // same as query() above
+      // nosemgrep: node-mysql-sqli
       const [rows] = await conn.query(sql, params);
       return rows;
     });

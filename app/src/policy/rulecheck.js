@@ -137,4 +137,20 @@ function exactPins(range, ecosystem = 'npm') {
   return out;
 }
 
-module.exports = { ruleEcosystem, checkPattern, checkRange, exactPins };
+// when a rule runs out. blank = never. takes an ISO date (2026-12-01T17:00:00Z) or unix seconds, hands back unix
+// seconds or null. a new rule that is already over is almost always a typo, an import of an old one is history
+const MAX_EXPIRY_S = 5 * 366 * 86400;
+function checkExpiry(value, options = {}) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const text = String(value).trim();
+  const ms = /^\d{9,11}$/.test(text) ? Number(text) * 1000 : Date.parse(text);
+  if (!Number.isFinite(ms)) fail(400, 'expires_at needs to be a date like 2026-12-01T17:00:00Z, or blank for never');
+  const at = Math.floor(ms / 1000);
+  const now = Math.floor(Date.now() / 1000);
+  if (options.future && at <= now) fail(400, 'that expiry is already in the past');
+  if (at > now + MAX_EXPIRY_S) fail(400, 'an expiry more than five years out is just a permanent rule, leave it blank');
+  if (at < 0) fail(400, 'that expiry is before 1970');
+  return at;
+}
+
+module.exports = { ruleEcosystem, checkPattern, checkRange, checkExpiry, exactPins };

@@ -4,6 +4,7 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { sharded } = require('../../lib/safepath');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { promisify } = require('util');
@@ -28,7 +29,7 @@ async function init() {
 // hash the key so a weird package name (../../etc, anyone?) can never walk out of the cache dir
 function tarballPath(name, version) {
   const hash = crypto.createHash('sha256').update(`${name}@${version}`).digest('hex');
-  return path.join(tarDir, hash.slice(0, 2), hash.slice(2, 4), `${hash}.tgz`);
+  return sharded(tarDir, hash, '.tgz');
 }
 
 // row says where it came from. a file we can't place isn't handed out

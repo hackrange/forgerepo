@@ -14,6 +14,7 @@ function parseRuleFilters(query) {
   const search = str(query.q, 200, 'search');
   const cached = oneOf(query.cached, ['yes', 'no'], null);
   const vuln = oneOf(query.vuln, ['yes', 'no'], null);
+  const expiry = oneOf(query.expiry, ['temporary', 'expired', 'permanent'], null);
   // '' any, 'none' = covers everyone, a number = that one
   const scope = (raw) => {
     const text = raw === undefined ? '' : String(raw);
@@ -22,7 +23,7 @@ function parseRuleFilters(query) {
   };
   return {
     ecosystem, kind, application: scope(query.application), environment: scope(query.environment),
-    search: search ? likeTerm(search) : null, cached, vuln
+    search: search ? likeTerm(search) : null, cached, vuln, expiry
   };
 }
 

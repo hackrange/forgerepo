@@ -121,6 +121,7 @@ function readNuspec(text) {
   const lic = element(meta.inner, 'license');
   const license = lic && /type\s*=\s*["']expression["']/.test(lic.attrs) ? unxml(lic.inner).slice(0, 255) : null;
   const attr = (el, name) => {
+    // nosemgrep: detect-non-literal-regexp
     const m = new RegExp(`\\s${name}\\s*=\\s*"([^"]*)"|\\s${name}\\s*=\\s*'([^']*)'`).exec(el);
     return m ? unxml(m[1] === undefined ? m[2] : m[1]) : '';
   };

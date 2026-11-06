@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { inside, tempFile } = require('../../lib/safepath');
 const zlib = require('zlib');
 const { StringDecoder } = require('string_decoder');
 const db = require('../../db');
@@ -133,7 +134,7 @@ async function knownSuites(up) {
 // stream a url into a file, checking it against its sha256 and size. the temp file, or it throws
 async function fetchChecked(up, url, rel, sha256, size, maxBytes, magic) {
   await fsp.mkdir(workDir, { recursive: true });
-  const tmp = path.join(workDir, `apt.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`);
+  const tmp = tempFile(workDir, 'apt');
   let res;
   try {
     res = await safefetch.request(url, { headers: headers(up), timeoutMs: 1800000, maxBytes: Math.min(maxBytes, size ? size + 1 : maxBytes), stream: true });
@@ -181,7 +182,7 @@ async function fetchChecked(up, url, rel, sha256, size, maxBytes, magic) {
 const inflight = new Map();
 async function metaFile(up, suite, entry, byHash) {
   await fsp.mkdir(dir(), { recursive: true });
-  const file = path.join(dir(), `${entry.sha256}.meta`);
+  const file = inside(dir(), `${entry.sha256}.meta`);
   if (await fsp.stat(file).then(() => true, () => false)) return file;
   if (!upstreamEnabled()) throw httpError(503, `${mode.offlineReason()} and ${entry.path} is not in the cache`);
   if (!inflight.has(file)) {

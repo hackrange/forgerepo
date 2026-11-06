@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { inside } = require('../../lib/safepath');
 const zlib = require('zlib');
 const config = require('../../config');
 const policy = require('../../policy');
@@ -39,14 +40,14 @@ async function allowedHrefs(idx, scope) {
 const building = new Map();
 async function filteredPrimary(up, idx, allowed) {
   const stamp = crypto.createHash('sha256').update(`${idx.primary.checksum}\n${[...allowed].sort().join('\n')}`).digest('hex');
-  const meta = path.join(dir(), `${stamp}.json`);
+  const meta = inside(dir(), `${stamp}.json`);
   const known = await fsp.readFile(meta, 'utf8').then(JSON.parse, () => null);
-  if (known && await fsp.stat(path.join(dir(), `${known.checksum}.xml.gz`)).then(() => true, () => false)) return known;
+  if (known && await fsp.stat(inside(dir(), `${known.checksum}.xml.gz`)).then(() => true, () => false)) return known;
   if (building.has(stamp)) return building.get(stamp);
   const job = (async () => {
     await fsp.mkdir(dir(), { recursive: true });
     const source = await upstream.metaFile(up, idx.primary);
-    const tmp = path.join(dir(), `${stamp}.${process.pid}.tmp`);
+    const tmp = inside(dir(), `${stamp}.${process.pid}.tmp`);
     const gz = zlib.createGzip({ level: 6 });
     const out = fs.createWriteStream(tmp, { mode: 0o640 });
     const packed = crypto.createHash('sha256');
@@ -77,7 +78,7 @@ async function filteredPrimary(up, idx, allowed) {
       gz.end();
     });
     const checksum = packed.digest('hex');
-    await fsp.rename(tmp, path.join(dir(), `${checksum}.xml.gz`));
+    await fsp.rename(tmp, inside(dir(), `${checksum}.xml.gz`));
     const got = { checksum, openChecksum: plain.digest('hex'), size, openSize };
     await fsp.writeFile(meta, JSON.stringify(got), { mode: 0o640 });
     return got;
@@ -105,7 +106,7 @@ function rewrite(xml, entries, got) {
 // a filtered primary asked for by name, or null when this box never built one called that
 async function fileFor(checksum) {
   if (!/^[0-9a-f]{64}$/.test(checksum)) return null;
-  const file = path.join(dir(), `${checksum}.xml.gz`);
+  const file = inside(dir(), `${checksum}.xml.gz`);
   return (await fsp.stat(file).then(() => true, () => false)) ? file : null;
 }
 

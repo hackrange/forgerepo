@@ -422,7 +422,7 @@ var DEVELOPER = {
           keywords: ['gradle', 'build.gradle', 'kotlin', 'repositories', 'mavenCentral', 'credentials', 'settings.gradle'],
           blocks: [
             { t: 'p', text: 'Replace `mavenCentral()` with the {{name}} repository, and read the token from the environment:' },
-            { t: 'code', file: 'build.gradle', text: 'repositories {\n    maven {\n        url "{{origin}}/maven/"\n        credentials {\n            username = "{{user}}"\n            password = System.getenv("REPO_TOKEN")\n        }\n    }\n}' },
+            { t: 'code', file: 'build.gradle', text: 'repositories {\n    maven {\n        url "{{origin}}/maven/"\n        credentials {\n            username = "{{user}}"\n            password = System.getenv("REPO_TOKEN")\n        }\n    }\n}' }, // gitleaks:allow, read from the env not a password
             { t: 'p', text: 'Put the same block under `pluginManagement` in `settings.gradle` so plugins come through {{host}} too.' }
           ]
         },

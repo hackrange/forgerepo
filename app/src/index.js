@@ -18,6 +18,8 @@ const upstreams = require('./registry/shared/upstreams');
 const portal = require('./portal');
 const { HttpError } = require('./lib/errors');
 
+// csrf is the json-only rule plus x-csrf-token checked against the session, see below and auth/middleware
+// nosemgrep: express-check-csurf-middleware-usage
 const app = express();
 
 app.disable('x-powered-by');
@@ -165,6 +167,8 @@ app.get('/_admin/brand/:kind', async (req, res, next) => {
     res.set('content-disposition', 'inline');
     res.set('content-security-policy', "default-src 'none'; sandbox");
     res.set('cache-control', 'private, max-age=300');
+    // sniffed image bytes, no svg, nosniff + sandbox csp
+    // nosemgrep: direct-response-write
     return res.send(got.body);
   } catch (err) {
     return next(err);

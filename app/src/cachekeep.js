@@ -5,7 +5,7 @@
 // file is a 503 mid build, so better to find out while it's still on. npm and PyPI both.
 
 const fsp = require('fs/promises');
-const path = require('path');
+const { inside } = require('./lib/safepath');
 const packages = require('./db/repositories/packages');
 const packuments = require('./db/repositories/packuments');
 const pypiFiles = require('./db/repositories/pypi-files');
@@ -170,7 +170,7 @@ async function findOrphans(rows) {
       return;
     }
     for (const entry of entries) {
-      const full = path.join(dir, entry.name);
+      const full = inside(dir, entry.name);
       if (entry.isDirectory()) await walk(full);
       // .tmp is a download still in flight, not an orphan
       else if (entry.isFile() && !known.has(full) && !full.endsWith('.tmp')) found.push(full);

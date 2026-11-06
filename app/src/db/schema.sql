@@ -110,11 +110,14 @@ CREATE TABLE IF NOT EXISTS rules (
     note VARCHAR(512) NULL,
     priority INT NOT NULL DEFAULT 0,
     enabled TINYINT(1) NOT NULL DEFAULT 1,
+    -- NULL = forever. past it the engine acts like the rule isn't there, the row stays so you can see what lapsed
+    expires_at DATETIME NULL,
     created_by VARCHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_rules_scope (ecosystem, pattern, kind, version_range, application_id, environment_id),
     KEY idx_rules_enabled (enabled),
+    KEY idx_rules_expires (expires_at),
     KEY idx_rules_scope (application_id, environment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

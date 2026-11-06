@@ -95,6 +95,8 @@ module.exports = {
     const props = {};
     for (const p of firstInner(text, 'properties').matchAll(/<([A-Za-z0-9_.-]+)>([^<]*)<\/\1>/g)) props[p[1]] = p[2].trim();
     const fill = (v) => String(v || '').replace(/\$\{([^}]+)\}/g, (all, key) => (key === 'project.version' || key === 'version' ? version : (props[key] !== undefined ? props[key] : all)));
+    // t is always one of our own literal tag names
+    // nosemgrep: detect-non-literal-regexp
     const tag = (block, t) => ((new RegExp(`<${t}>([^<]*)</${t}>`).exec(block) || [])[1] || '').trim();
     const out = [];
     const block = firstInner(text, 'dependencies');

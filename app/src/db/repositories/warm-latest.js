@@ -19,7 +19,7 @@ function uncachedAnyVersion(limit) {
   return db.query(
     `SELECT r.id, r.ecosystem, r.pattern, r.kind, r.version_range, r.application_id, r.environment_id, r.enabled
        FROM rules r
-      WHERE r.kind = 'allow' AND r.enabled = 1 AND COALESCE(r.version_range, '') = '' AND r.ecosystem IN ('npm', 'pypi')
+      WHERE r.kind = 'allow' AND r.enabled = 1 AND (r.expires_at IS NULL OR r.expires_at > NOW()) AND COALESCE(r.version_range, '') = '' AND r.ecosystem IN ('npm', 'pypi')
         AND r.pattern NOT LIKE '%*%'
         AND NOT EXISTS (SELECT 1 FROM artifacts a WHERE a.ecosystem = r.ecosystem AND a.package_name = r.pattern)
         AND NOT (r.ecosystem = 'npm' AND EXISTS (SELECT 1 FROM tarballs t WHERE t.package_name = r.pattern))

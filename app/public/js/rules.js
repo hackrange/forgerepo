@@ -11,7 +11,7 @@ import { route } from './routing.js';
 
 var rulesPage = 1;
 var rulesLimit = 50;
-var rulesFilter = { ecosystem: '', kind: '', q: '', cached: '', vuln: '', application: '', environment: '' };
+var rulesFilter = { ecosystem: '', kind: '', q: '', cached: '', vuln: '', application: '', environment: '', expiry: '' };
 
 // shared by the list and its export so they match
 function rulesQuery() {
@@ -19,6 +19,7 @@ function rulesQuery() {
     (rulesFilter.kind ? '&kind=' + rulesFilter.kind : '') +
     (rulesFilter.cached ? '&cached=' + rulesFilter.cached : '') +
     (rulesFilter.vuln ? '&vuln=' + rulesFilter.vuln : '') +
+    (rulesFilter.expiry ? '&expiry=' + rulesFilter.expiry : '') +
     (rulesFilter.application ? '&application=' + encodeURIComponent(rulesFilter.application) : '') +
     (rulesFilter.environment ? '&environment=' + encodeURIComponent(rulesFilter.environment) : '') +
     (rulesFilter.q ? '&q=' + encodeURIComponent(rulesFilter.q) : '');
@@ -50,6 +51,43 @@ function vulnCell(r) {
   var worst = String(r.vuln_worst || '').toLowerCase();
   return h('span', { class: r.vuln_worst === 'CRITICAL' || r.vuln_worst === 'HIGH' ? 'deny' : 'warn' },
     [n + (worst ? ' ' + worst : '')]);
+}
+
+// datetime-local wants local time with no zone, toISOString is UTC. off by your timezone otherwise
+function localInput(ms) {
+  var d = new Date(ms);
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+// a date box plus the presets people actually want. value() is ISO in UTC, or '' for never
+function expiryPick(ts) {
+  var input = h('input', { type: 'datetime-local', value: ts ? localInput(Number(ts) * 1000) : '' });
+  function preset(label, days) {
+    return link(label, function () { input.value = days ? localInput(Date.now() + days * 86400000) : ''; });
+  }
+  var el = h('div', null, [
+    h('label', null, ['Expires']), input,
+    h('div', { class: 'hint' }, [preset('1 day', 1), ' · ', preset('7 days', 7), ' · ', preset('30 days', 30), ' · ',
+      preset('90 days', 90), ' · ', preset('never', 0)])
+  ]);
+  return {
+    el: el,
+    value: function () {
+      if (!input.value) return '';
+      var d = new Date(input.value);
+      return isNaN(d.getTime()) ? input.value : d.toISOString();
+    }
+  };
+}
+
+function expiryCell(r) {
+  if (!r.expires_ts) return h('span', { class: 'muted' }, ['never']);
+  var when = new Date(Number(r.expires_ts) * 1000).toLocaleString();
+  if (Number(r.expired)) return h('span', { class: 'deny', title: 'the engine ignores this rule now' }, ['expired ' + when]);
+  var left = Number(r.expires_ts) * 1000 - Date.now();
+  // under 3 days left gets the yellow, so nobody is surprised on monday
+  return h('span', { class: left < 3 * 86400000 ? 'warn' : null }, [when]);
 }
 
 // who a rule covers, in words
@@ -114,6 +152,12 @@ function viewRules(body) {
       h('option', { value: 'yes', selected: rulesFilter.vuln === 'yes' }, ['vulnerable']),
       h('option', { value: 'no', selected: rulesFilter.vuln === 'no' }, ['not vulnerable'])
     ]);
+    var expiryFilter = h('select', null, [
+      h('option', { value: '' }, ['any expiry']),
+      h('option', { value: 'temporary', selected: rulesFilter.expiry === 'temporary' }, ['temporary, still running']),
+      h('option', { value: 'expired', selected: rulesFilter.expiry === 'expired' }, ['expired']),
+      h('option', { value: 'permanent', selected: rulesFilter.expiry === 'permanent' }, ['never expires'])
+    ]);
     var filterScope = function (entries, current, anyLabel) {
       var sel = scopePick(entries, current === 'none' ? '' : current, anyLabel);
       sel.insertBefore(h('option', { value: 'none', selected: current === 'none' }, ['only rules for everyone']), sel.children[1] || null);
@@ -130,6 +174,7 @@ function viewRules(body) {
         rulesFilter.kind = kind.value;
         rulesFilter.cached = cachedPick.value;
         rulesFilter.vuln = vulnPick.value;
+        rulesFilter.expiry = expiryFilter.value;
         rulesFilter.application = appFilter ? appFilter.value : '';
         rulesFilter.environment = envFilter ? envFilter.value : '';
         rulesPage = 1;
@@ -143,6 +188,7 @@ function viewRules(body) {
       envFilter ? h('div', null, [h('label', null, ['Environment']), envFilter]) : null,
       h('div', null, [h('label', null, ['Cache']), cachedPick]),
       h('div', null, [h('label', null, ['Advisories']), vulnPick]),
+      h('div', null, [h('label', null, ['Expiry']), expiryFilter]),
       h('div', null, [h('button', { type: 'submit' }, ['Filter'])])
     ]));
 
@@ -158,6 +204,18 @@ function viewRules(body) {
       }),
       ' — tick those and use Cache now below. Wildcard rules are left out of ' +
       '"not cached", since there is no single name to look up and they cannot be warmed.'
+    ]));
+
+    // time boxed exceptions that ran out. tick them and use Extend below
+    body.appendChild(h('p', { class: 'hint' }, [
+      'A rule with an expiry stops counting the moment it runs out, within a few seconds. It stays in the list so you ' +
+      'can see what lapsed. ',
+      link('Show expired exceptions', function () {
+        rulesFilter.expiry = 'expired';
+        rulesPage = 1;
+        route();
+      }),
+      ' — tick the ones still needed and use Extend below.'
     ]));
 
     // the other combo people want: approved AND known bad. yikes
@@ -218,6 +276,7 @@ function viewRules(body) {
       var enabled = h('input', { type: 'checkbox', checked: r.enabled ? 'checked' : null });
       var appEdit = scopePick(scopes.applications, r.application_id || '', 'every application');
       var envEdit = scopePick(scopes.environments, r.environment_id || '', 'every environment');
+      var expiresEdit = expiryPick(r.expires_ts);
 
       // version_range is 128 chars in the db, long || lists run out fast
       var used = h('p', { class: 'hint' }, ['']);
@@ -263,6 +322,7 @@ function viewRules(body) {
           'Clearing the box makes the rule cover every version of the package.'
         ]),
         h('label', null, ['Note']), note,
+        expiresEdit.el,
         h('label', null, [enabled, ' Enabled']),
         h('div', null, [
           h('button', {
@@ -274,6 +334,7 @@ function viewRules(body) {
                 note: note.value.trim(),
                 priority: priority.value,
                 enabled: enabled.checked,
+                expires_at: expiresEdit.value(),
                 application_id: appEdit.value,
                 environment_id: envEdit.value
               }).then(route).catch(function (e) { alert(e.message); });
@@ -299,11 +360,13 @@ function viewRules(body) {
       refreshCount();
     });
 
-    function bulk(action, question) {
+    function bulk(action, question, extra) {
       var ids = Object.keys(selected).map(Number);
       if (!ids.length) return alert('Tick a few rules first.');
       if (question && !confirm(question.replace('%n', ids.length))) return;
-      api('POST', '/rules/actions', { ids: ids, action: action })
+      var payload = { ids: ids, action: action };
+      Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
+      api('POST', '/rules/actions', payload)
         .then(function (r) {
           if (r.skipped && r.skipped.length) {
             alert('Changed ' + r.affected + '. Skipped ' + r.skipped.length + ':\n\n' +
@@ -315,7 +378,7 @@ function viewRules(body) {
     }
 
     var ruleCols = [{ label: selectAll }, 'Pattern', 'Kind', 'Versions', 'Applies to', { label: 'Cached', num: true },
-      { label: 'Advisories', num: true }, 'Note', { label: 'Priority', num: true }, 'Added by', 'Actions'];
+      { label: 'Advisories', num: true }, 'Expires', 'Note', { label: 'Priority', num: true }, 'Added by', 'Actions'];
     body.appendChild(table(
       ruleCols,
       d.rules.map(function (r) {
@@ -346,11 +409,12 @@ function viewRules(body) {
         var cells = [
           tick,
           ecoPkg(r.ecosystem || 'npm', r.pattern),
-          h('span', { class: r.kind === 'allow' ? 'allow' : 'deny' }, [r.kind + (r.enabled ? '' : ' (off)')]),
+          h('span', { class: r.kind === 'allow' ? 'allow' : 'deny' }, [r.kind + (r.enabled ? '' : ' (off)') + (Number(r.expired) ? ' (expired)' : '')]),
           r.version_range || 'any',
           h('span', { class: r.application_id || r.environment_id ? null : 'muted' }, [scopeLabel(r.application_name, r.environment_name, r.application_id, r.environment_id)]),
           cacheCell(r),
           vulnCell(r),
+          expiryCell(r),
           r.note || '',
           String(r.priority),
           r.created_by || '',
@@ -373,6 +437,26 @@ function viewRules(body) {
           h('button', { onclick: function () { bulk('enable'); } }, ['Enable']),
           h('button', { onclick: function () { bulk('disable'); } }, ['Disable']),
           h('button', { class: 'danger', onclick: function () { bulk('delete', 'Delete %n rule(s)? This cannot be undone.'); } }, ['Delete'])
+        ])
+      ]));
+
+      // more time on a time boxed exception, expired or not
+      var extendDays = h('input', { type: 'number', value: '30', min: '1', max: '365' });
+      body.appendChild(h('fieldset', null, [
+        h('legend', null, ['Extend the ticked rules']),
+        h('p', { class: 'hint' }, [
+          'Adds the days to whichever is later, the current expiry or right now, so an exception that ran out last ' +
+          'week gets the full stretch from today. Rules that never expire are skipped. Up to 365 days at a time.'
+        ]),
+        h('div', { class: 'row' }, [
+          h('div', null, [h('label', null, ['Days']), extendDays]),
+          h('div', null, [h('button', {
+            onclick: function () {
+              var n = parseInt(extendDays.value, 10);
+              if (!(n >= 1 && n <= 365)) return alert('Pick 1 to 365 days.');
+              bulk('extend', 'Extend %n rule(s) by ' + n + ' day(s)?', { days: n });
+            }
+          }, ['Extend'])])
         ])
       ]));
 
@@ -537,6 +621,8 @@ function ruleForm(types, scopes) {
   var range = h('input', { type: 'text' });
   var note = h('input', { type: 'text', placeholder: 'why' });
   var priority = h('input', { type: 'number', value: '0' });
+  var expires = expiryPick(null);
+  var bulkExpires = expiryPick(null);
   var names = h('p', { class: 'hint' }, ['']);
   var lead = h('p', { class: 'hint' }, ['']);
   var facts = h('dl', { class: 'facts' }, []);
@@ -595,6 +681,11 @@ function ruleForm(types, scopes) {
         'where it beats a rule for everyone. Requests with no token only ever get the rules for everyone.'
       ]) : null,
       h('label', null, ['Note']), note,
+      expires.el,
+      h('p', { class: 'hint' }, [
+        'Leave Expires empty for a rule that stays. Set it for a time boxed exception: once it passes the rule ' +
+        'stops counting on its own, and Extend on the list gives it more time.'
+      ]),
       names,
       lead,
       facts,
@@ -611,6 +702,7 @@ function ruleForm(types, scopes) {
             version_range: range.value.trim(),
             note: note.value.trim(),
             priority: priority.value,
+            expires_at: expires.value(),
             application_id: appPick.value,
             environment_id: envPick.value
           }).then(route).catch(function (e) { alert(e.message); });
@@ -627,9 +719,10 @@ function ruleForm(types, scopes) {
         hasScopes ? h('div', null, [h('label', null, ['Only for application']), bulkApp]) : null,
         hasScopes ? h('div', null, [h('label', null, ['Only in environment']), bulkEnv]) : null
       ]),
+      bulkExpires.el,
       h('button', {
         onclick: function () {
-          api('POST', '/rules/bulk', { ecosystem: chosen(bulkType), patterns: bulk.value, kind: bulkKind.value, note: 'bulk added', application_id: bulkApp.value, environment_id: bulkEnv.value })
+          api('POST', '/rules/bulk', { ecosystem: chosen(bulkType), patterns: bulk.value, kind: bulkKind.value, note: 'bulk added', expires_at: bulkExpires.value(), application_id: bulkApp.value, environment_id: bulkEnv.value })
             .then(function (d) {
               if (d.skipped && d.skipped.length) {
                 alert('Added ' + d.added + '. Skipped ' + d.skipped.length + ':\n\n' +

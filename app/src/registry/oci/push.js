@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { inside } = require('../../lib/safepath');
 const config = require('../../config');
 const auth = require('../../security/auth');
 const artifacts = require('../../storage/artifacts');
@@ -49,7 +50,7 @@ function no(code, message, status) {
   return e;
 }
 
-const fileOf = (id) => path.join(workDir, id);
+const fileOf = (id) => inside(workDir, id);
 const uploadUrl = (repository, id) => `/v2/${repository}/blobs/uploads/${id}`;
 
 // who is pushing, and where. a session cookie is not a pushing credential, only a token is

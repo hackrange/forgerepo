@@ -27,6 +27,8 @@ async function projectList(req, res) {
   res.set('content-type', simple.CONTENT_TYPE[kind]);
   res.set('vary', 'Accept');
   res.set('cache-control', 'no-cache');
+  // every value in the page was escaped by simple.js
+  // nosemgrep: direct-response-write
   return res.send(body);
 }
 
@@ -98,6 +100,8 @@ async function projectPage(req, res) {
   res.set('content-type', simple.CONTENT_TYPE[kind]);
   res.set('vary', 'Accept');
   res.set('cache-control', 'no-cache');
+  // every value in the page was escaped by simple.js
+  // nosemgrep: direct-response-write
   return res.send(body);
 }
 

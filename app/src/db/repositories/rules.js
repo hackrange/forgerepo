@@ -6,8 +6,15 @@ const db = require('../../db');
 const { CACHE_TYPES, CACHED_VERSIONS, CACHED_PIN_COUNT, PINNED_COUNT, FULLY_CACHED, VULN_COUNT, VULN_WORST } = require('./rule-columns');
 
 const WRITABLE = new Set([
-  'ecosystem', 'pattern', 'kind', 'version_range', 'application_id', 'environment_id', 'note', 'priority', 'enabled', 'created_by'
+  'ecosystem', 'pattern', 'kind', 'version_range', 'application_id', 'environment_id', 'note', 'priority', 'enabled', 'expires_at', 'created_by'
 ]);
+
+// expires_at goes in as unix seconds (or null) so the db turns it into its own clock, the same one NOW() reads
+const PLACEHOLDER = { expires_at: 'FROM_UNIXTIME(?)' };
+const slot = (c) => PLACEHOLDER[c] || '?';
+
+// still counts. disabled is a choice, expired is the calendar's
+const LIVE = '(expires_at IS NULL OR expires_at > NOW())';
 
 function checkColumns(columns) {
   for (const c of columns) {
@@ -25,7 +32,7 @@ function checkColumns(columns) {
 function upsertSql(columns, rows, onDuplicate) {
   checkColumns(columns);
   checkColumns(Object.keys(onDuplicate));
-  const one = `(${columns.map(() => '?').join(', ')})`;
+  const one = `(${columns.map(slot).join(', ')})`;
   const sets = Object.entries(onDuplicate).map(([c, v]) => (v === 'values' ? `${c} = VALUES(${c})` : `${c} = ${Number(v)}`));
   return `INSERT INTO rules (${columns.join(', ')}) VALUES ${new Array(rows).fill(one).join(', ')} `
     + `ON DUPLICATE KEY UPDATE ${[...sets, 'updated_at = NOW()'].join(', ')}`;
@@ -48,6 +55,13 @@ async function upsertMany(columns, rows, onDuplicate, q = db.query) {
 function filterClause(f) {
   const where = [];
   const params = [];
+  if (f.expiry === 'expired') {
+    where.push(`NOT ${LIVE}`);
+  } else if (f.expiry === 'temporary') {
+    where.push(`expires_at IS NOT NULL AND ${LIVE}`);
+  } else if (f.expiry === 'permanent') {
+    where.push('expires_at IS NULL');
+  }
   if (f.ecosystem) {
     where.push('ecosystem = ?');
     params.push(f.ecosystem);
@@ -96,6 +110,7 @@ const LIST_COLUMNS = `id, ecosystem, pattern, kind, version_range, application_i
               (SELECT name FROM applications WHERE id = rules.application_id) AS application_name,
               (SELECT name FROM environments WHERE id = rules.environment_id) AS environment_name,
               note, priority, enabled, created_by, created_at, updated_at,
+              UNIX_TIMESTAMP(expires_at) AS expires_ts, (NOT ${LIVE}) AS expired,
               ${CACHED_VERSIONS} AS cached_versions,
               ${CACHED_PIN_COUNT} AS cached_pins,
               ${PINNED_COUNT} AS pinned_versions,
@@ -123,7 +138,7 @@ async function imageCandidates(filters) {
 // ---------------------------------------------------------------- one rule, or a few
 
 function byId(id) {
-  return db.one('SELECT * FROM rules WHERE id = ?', [id]);
+  return db.one(`SELECT *, UNIX_TIMESTAMP(expires_at) AS expires_ts, (NOT ${LIVE}) AS expired FROM rules WHERE id = ?`, [id]);
 }
 
 // the unique key, for finding a row an upsert updated instead of inserting
@@ -137,15 +152,16 @@ function byKey(k) {
 
 function byIds(ids) {
   return db.query(
-    `SELECT id, ecosystem, pattern, kind, version_range, application_id, environment_id, enabled FROM rules WHERE id IN (${ids.map(() => '?').join(',')})`,
+    `SELECT id, ecosystem, pattern, kind, version_range, application_id, environment_id, enabled, expires_at FROM rules WHERE id IN (${ids.map(() => '?').join(',')})`,
     ids
   );
 }
 
 function update(id, p) {
   return db.query(
-    'UPDATE rules SET pattern=?, kind=?, version_range=?, application_id=?, environment_id=?, note=?, priority=?, enabled=? WHERE id = ?',
-    [p.pattern, p.kind, p.version_range, p.application_id, p.environment_id, p.note, p.priority, p.enabled, id]
+    `UPDATE rules SET pattern=?, kind=?, version_range=?, application_id=?, environment_id=?, note=?, priority=?, enabled=?,
+            expires_at=FROM_UNIXTIME(?) WHERE id = ?`,
+    [p.pattern, p.kind, p.version_range, p.application_id, p.environment_id, p.note, p.priority, p.enabled, p.expires_ts, id]
   );
 }
 
@@ -161,6 +177,16 @@ async function setEnabled(ids, on) {
   return (await db.query(`UPDATE rules SET enabled = ? WHERE id IN (${ids.map(() => '?').join(',')})`, [on ? 1 : 0, ...ids])).affectedRows;
 }
 
+// from whichever is later, the old date or now. extending something that ran out last week by 3 days should
+// not land in the past. forever rules have nothing to extend, they're left out
+async function extend(ids, days) {
+  return (await db.query(
+    `UPDATE rules SET expires_at = DATE_ADD(GREATEST(expires_at, NOW()), INTERVAL ? DAY)
+      WHERE expires_at IS NOT NULL AND id IN (${ids.map(() => '?').join(',')})`,
+    [days, ...ids]
+  )).affectedRows;
+}
+
 async function setKind(id, kind) {
   return (await db.query('UPDATE rules SET kind = ? WHERE id = ?', [kind, id])).affectedRows;
 }
@@ -172,7 +198,8 @@ function removeEcosystems(types, q = db.query) {
 
 // ---------------------------------------------------------------- what the engine reads
 
-// every live rule with its scope names, the engine compiles these
+// every live rule with its scope names, the engine compiles these. an expired one drops out on the next reload,
+// and that changes the fingerprint so every remembered verdict goes with it
 function enabledForEngine() {
   return db.query(
     `SELECT r.id, r.ecosystem, r.pattern, r.kind, r.version_range, r.application_id, r.environment_id, r.note, r.priority, r.enabled,
@@ -180,16 +207,16 @@ function enabledForEngine() {
        FROM rules r
        LEFT JOIN applications a ON a.id = r.application_id
        LEFT JOIN environments e ON e.id = r.environment_id
-      WHERE r.enabled = 1`
+      WHERE r.enabled = 1 AND (r.expires_at IS NULL OR r.expires_at > NOW())`
   );
 }
 
 // allow rules naming one exact package, no wildcards
 function exactAllowPatterns(ecosystem) {
-  return db.query("SELECT pattern FROM rules WHERE ecosystem = ? AND kind = 'allow' AND enabled = 1 AND pattern NOT LIKE '%*%'", [ecosystem]);
+  return db.query(`SELECT pattern FROM rules WHERE ecosystem = ? AND kind = 'allow' AND enabled = 1 AND ${LIVE} AND pattern NOT LIKE '%*%'`, [ecosystem]);
 }
 
 module.exports = {
-  upsertSql, upsert, upsertMany, filterClause, imageCandidates, page, byId, byKey, byIds, update, remove, removeMany, setEnabled, setKind, removeEcosystems,
+  LIVE, upsertSql, upsert, upsertMany, filterClause, imageCandidates, page, byId, byKey, byIds, update, remove, removeMany, setEnabled, extend, setKind, removeEcosystems,
   enabledForEngine, exactAllowPatterns
 };

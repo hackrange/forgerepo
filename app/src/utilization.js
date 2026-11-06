@@ -47,6 +47,8 @@ function cpuPercent(prev, cur) {
 
 function parseMeminfo(text) {
   const get = (key) => {
+    // MemTotal or MemAvailable, that's it
+    // nosemgrep: detect-non-literal-regexp
     const m = new RegExp(`^${key}:\\s+(\\d+)\\s*kB`, 'm').exec(String(text));
     return m ? Number(m[1]) * 1024 : null;
   };

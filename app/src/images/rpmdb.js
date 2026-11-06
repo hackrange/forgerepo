@@ -5,8 +5,7 @@
 // checked to be a table (a view could call anything), and every header is bounds checked before a byte is read
 
 const fsp = require('fs/promises');
-const path = require('path');
-const crypto = require('crypto');
+const { tempFile } = require('../lib/safepath');
 
 const MAX_PACKAGES = 50000;
 const MAX_HEADER = 16 * 1024 * 1024;
@@ -78,7 +77,7 @@ async function readSqlite(buffer, workDir) {
     throw new Error('this node has no sqlite support');
   }
   await fsp.mkdir(workDir, { recursive: true });
-  const file = path.join(workDir, `rpmdb.${process.pid}.${crypto.randomBytes(8).toString('hex')}.sqlite`);
+  const file = tempFile(workDir, 'rpmdb', '.sqlite');
   await fsp.writeFile(file, buffer, { mode: 0o600 });
   let db;
   try {

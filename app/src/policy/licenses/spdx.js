@@ -2,6 +2,8 @@
 // Author: Tim Rice
 // OR = either will do, AND = needs both. can't read it? unknown. we don't guess
 
+const { glob: starGlob } = require('../../lib/glob');
+
 const MAX_INPUT = 512;
 const MAX_TEXT = 4096;
 
@@ -257,33 +259,8 @@ function fromPypi(meta) {
 const RANK = { allowed: 0, review: 1, blocked: 2 };
 const NAMES = ['allowed', 'review', 'blocked'];
 
-// * matches anything. no regex, so a pile of stars can't backtrack forever
-function glob(pattern, text) {
-  const p = pattern.toLowerCase();
-  const t = text.toLowerCase();
-  let i = 0;
-  let j = 0;
-  let star = -1;
-  let mark = 0;
-  while (j < t.length) {
-    if (i < p.length && p[i] === '*') {
-      star = i;
-      i += 1;
-      mark = j;
-    } else if (i < p.length && p[i] === t[j]) {
-      i += 1;
-      j += 1;
-    } else if (star !== -1) {
-      i = star + 1;
-      mark += 1;
-      j = mark;
-    } else {
-      return false;
-    }
-  }
-  while (i < p.length && p[i] === '*') i += 1;
-  return i === p.length;
-}
+// license ids don't care about case
+const glob = (pattern, text) => starGlob(pattern.toLowerCase(), text.toLowerCase());
 
 // one per line (or comma), # notes
 function compileList(text) {

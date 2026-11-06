@@ -4,7 +4,7 @@
 const express = require('express');
 const auth = require('../../security/auth');
 const rules = require('../../services/rules');
-const { ruleEcosystem, checkPattern, checkRange } = require('../../policy/rulecheck');
+const { ruleEcosystem, checkPattern, checkRange, checkExpiry } = require('../../policy/rulecheck');
 const { wrap } = require('../../lib/http');
 const { fail } = require('../../lib/errors');
 const { actorOf } = require('../../lib/actor');
@@ -39,8 +39,9 @@ router.post(
     const note = str(body.note, 512, 'note');
     const priority = intIn(body.priority, -1000, 1000, 0);
     const enabled = boolFlag(body.enabled, true) ? 1 : 0;
+    const expires = checkExpiry(body.expires_at, { future: true });
     const scope = await ruleScope(body);
-    const rule = await rules.save(actorOf(req), { ecosystem, pattern, kind, range, note, priority, enabled, scope });
+    const rule = await rules.save(actorOf(req), { ecosystem, pattern, kind, range, note, priority, enabled, expires, scope });
     res.status(201).json({ ok: true, rule });
   })
 );
@@ -57,8 +58,14 @@ router.patch(
       version_range: req.body.version_range !== undefined ? checkRange(req.body.version_range, existing.ecosystem) : existing.version_range,
       note: req.body.note !== undefined ? str(req.body.note, 512, 'note') : existing.note,
       priority: req.body.priority !== undefined ? intIn(req.body.priority, -1000, 1000, 0) : existing.priority,
-      enabled: req.body.enabled !== undefined ? (boolFlag(req.body.enabled, true) ? 1 : 0) : existing.enabled
+      enabled: req.body.enabled !== undefined ? (boolFlag(req.body.enabled, true) ? 1 : 0) : existing.enabled,
+      expires_ts: existing.expires_ts === null || existing.expires_ts === undefined ? null : Number(existing.expires_ts)
     };
+    // blank clears it. a new date has to be ahead of us, the one it already had can stay put even if it's gone by
+    if (req.body.expires_at !== undefined) {
+      const asked = checkExpiry(req.body.expires_at);
+      patch.expires_ts = asked === null || asked === patch.expires_ts ? asked : checkExpiry(req.body.expires_at, { future: true });
+    }
     const scope = await ruleScope(req.body, existing);
     patch.application_id = scope.app;
     patch.environment_id = scope.env;
@@ -90,8 +97,9 @@ router.post(
     if (lines.length > 2000) fail(400, 'that is more than 2000 lines, split it up');
 
     const ecosystem = ruleEcosystem(req.body.ecosystem, { mustBeOn: true });
+    const expires = checkExpiry(req.body.expires_at, { future: true });
     const scope = await ruleScope(req.body);
-    const { added, skipped } = await rules.addMany(actorOf(req), { ecosystem, kind, note, scope, lines });
+    const { added, skipped } = await rules.addMany(actorOf(req), { ecosystem, kind, note, expires, scope, lines });
     res.json({ ok: true, added, skipped });
   })
 );
@@ -101,15 +109,17 @@ router.post(
   '/rules/actions',
   auth.requirePerm('rules:write'),
   wrap(async (req, res) => {
-    const action = oneOf(req.body.action, ['delete', 'allow', 'deny', 'enable', 'disable'], null);
-    if (!action) fail(400, 'pick delete, allow, deny, enable or disable');
+    const action = oneOf(req.body.action, ['delete', 'allow', 'deny', 'enable', 'disable', 'extend'], null);
+    if (!action) fail(400, 'pick delete, allow, deny, enable, disable or extend');
+    const days = action === 'extend' ? intIn(req.body.days, 1, 365, 0) : 0;
+    if (action === 'extend' && !days) fail(400, 'extend by 1 to 365 days');
 
     const raw = Array.isArray(req.body.ids) ? req.body.ids : [];
     if (!raw.length) fail(400, 'nothing was selected');
     if (raw.length > 1000) fail(400, 'that is over a thousand rules, do it in batches');
     const ids = [...new Set(raw.map(idParam))];
 
-    const { affected, skipped } = await rules.act(actorOf(req), action, ids);
+    const { affected, skipped } = await rules.act(actorOf(req), action, ids, { days });
     res.json({ ok: true, action, affected, skipped });
   })
 );

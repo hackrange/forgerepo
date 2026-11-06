@@ -7,6 +7,7 @@
 // signer attaches is never trusted, only the roots in the trust root. SCTs are not checked, the Rekor entry is
 
 const crypto = require('crypto');
+const { Glob } = require('../lib/glob');
 const { X509Certificate } = crypto;
 
 const SIGNATURE = 'dev.cosignproject.cosign/signature';
@@ -188,8 +189,7 @@ function der(pem) {
 function globMatch(pattern, value) {
   const p = String(pattern || '');
   if (!p.includes('*')) return p === value;
-  const re = new RegExp(`^${p.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
-  return re.test(value);
+  return new Glob(p).test(value);
 }
 
 // ---------------------------------------------------------------- one signature

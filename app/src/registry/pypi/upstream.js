@@ -8,6 +8,7 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { sharded } = require('../../lib/safepath');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { promisify } = require('util');
@@ -276,7 +277,7 @@ async function knownProjects() {
 // hashed, so no clever filename can ever ../ its way out of the cache directory
 function filePath(project, filename) {
   const hash = crypto.createHash('sha256').update(`${project}/${filename}`).digest('hex');
-  return path.join(fileDir, hash.slice(0, 2), hash.slice(2, 4), `${hash}.bin`);
+  return sharded(fileDir, hash, '.bin');
 }
 
 async function cachedFile(project, filename, version) {

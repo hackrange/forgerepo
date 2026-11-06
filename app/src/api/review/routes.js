@@ -86,7 +86,10 @@ router.post(
       res.set('content-type', 'application/json; charset=utf-8');
       res.set('content-disposition', `attachment; filename="${base}-review${tag}-${stamp}.json"`);
       // summary covers the whole file, filtered_to says which rows came along
+      // a fresh object of our own report, sent as a json download. nothing gets assigned onto a row
+      // nosemgrep: express-data-exfiltration
       const out = Object.assign({}, report, { filtered_to: only, findings });
+      // nosemgrep: direct-response-write
       return res.send(`${JSON.stringify(out, null, 2)}\n`);
     }
 

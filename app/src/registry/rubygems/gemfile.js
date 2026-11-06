@@ -28,6 +28,8 @@ function entries(buf) {
 }
 
 const scalar = (text, key) => {
+  // key is a literal gemspec field
+  // nosemgrep: detect-non-literal-regexp
   const m = new RegExp(`^${key}: +(.+)$`, 'm').exec(text);
   return m ? m[1].trim().replace(/^["']|["']$/g, '') : '';
 };

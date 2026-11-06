@@ -134,12 +134,15 @@ function lookupWith(publicOnly) {
 }
 
 const agents = {
+  // outbound agents, not servers. plain http only for an upstream an admin set up that way
+  // nosemgrep: using-http-server
   'http:': new http.Agent({ keepAlive: true, lookup: lookupWith(false) }),
   'https:': new https.Agent({ keepAlive: true, lookup: lookupWith(false) })
 };
 
 // separate pool so a private connection never gets reused by a public only request
 const publicAgents = {
+  // nosemgrep: using-http-server
   'http:': new http.Agent({ keepAlive: true, lookup: lookupWith(true) }),
   'https:': new https.Agent({ keepAlive: true, lookup: lookupWith(true) })
 };

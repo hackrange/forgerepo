@@ -307,7 +307,7 @@ async function whatToCheck() {
 
   const rules = await db.query(
     `SELECT ecosystem, pattern, version_range FROM rules
-      WHERE kind = 'allow' AND enabled = 1 AND version_range <> ''
+      WHERE kind = 'allow' AND enabled = 1 AND (expires_at IS NULL OR expires_at > NOW()) AND version_range <> ''
         AND pattern NOT LIKE '%*%'`
   );
   for (const rule of rules) {

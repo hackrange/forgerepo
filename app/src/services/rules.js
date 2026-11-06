@@ -10,6 +10,11 @@ const { checkPattern } = require('../policy/rulecheck');
 const { audit } = require('../lib/actor');
 const { fail } = require('../lib/errors');
 
+// audit wants something a person can read, not unix seconds
+function expiryText(ts) {
+  return ts === null || ts === undefined ? null : new Date(Number(ts) * 1000).toISOString();
+}
+
 // npm rules keep the old naming so old audit searches still hit
 function ruleTarget(ecosystem, kind, pattern) {
   return !ecosystem || ecosystem === 'npm' ? `${kind}:${pattern}` : `${ecosystem}:${kind}:${pattern}`;
@@ -37,19 +42,19 @@ async function get(id) {
   return row;
 }
 
-// r: { ecosystem, pattern, kind, range, note, priority, enabled, scope: { app, env } }
+// r: { ecosystem, pattern, kind, range, note, priority, enabled, expires (unix seconds or null), scope: { app, env } }
 async function save(actor, r) {
   const key = {
     ecosystem: r.ecosystem, pattern: r.pattern, kind: r.kind, version_range: r.range, application_id: r.scope.app, environment_id: r.scope.env
   };
   const result = await rules.upsert(
-    { ...key, note: r.note, priority: r.priority, enabled: r.enabled, created_by: actor.name },
-    { note: 'values', priority: 'values', enabled: 'values' }
+    { ...key, note: r.note, priority: r.priority, enabled: r.enabled, expires_at: r.expires, created_by: actor.name },
+    { note: 'values', priority: 'values', enabled: 'values', expires_at: 'values' }
   );
   policy.invalidate();
   await audit(actor, 'rule.save', ruleTarget(r.ecosystem, r.kind, r.pattern),
-    JSON.stringify({ range: r.range, priority: r.priority, enabled: r.enabled, application_id: r.scope.app, environment_id: r.scope.env }),
-    { after: { ...key, note: r.note, priority: r.priority, enabled: r.enabled } });
+    JSON.stringify({ range: r.range, priority: r.priority, enabled: r.enabled, application_id: r.scope.app, environment_id: r.scope.env, expires: expiryText(r.expires) }),
+    { after: { ...key, note: r.note, priority: r.priority, enabled: r.enabled, expires: expiryText(r.expires) } });
   const id = result.insertId || (await rules.byKey(key)).id;
   const saved = await rules.byId(id);
   // an allow for every version with nothing cached gets its current version pulled in the background
@@ -71,8 +76,9 @@ async function update(actor, existing, patch) {
     throw err;
   }
   policy.invalidate();
-  await audit(actor, 'rule.update', ruleTarget(existing.ecosystem, patch.kind, patch.pattern), JSON.stringify(patch),
-    { before: Object.fromEntries((Object.keys(patch)).map((k) => [k, existing[k]])), after: patch });
+  const shown = (row) => ({ ...row, expires_ts: undefined, expires: expiryText(row.expires_ts) });
+  await audit(actor, 'rule.update', ruleTarget(existing.ecosystem, patch.kind, patch.pattern), JSON.stringify(shown(patch)),
+    { before: shown(Object.fromEntries((Object.keys(patch)).map((k) => [k, existing[k]]))), after: shown(patch) });
   return rules.byId(existing.id);
 }
 
@@ -81,19 +87,20 @@ async function remove(actor, id) {
   await rules.remove(id);
   policy.invalidate();
   await audit(actor, 'rule.delete', `${existing.kind}:${existing.pattern}`, null,
-    { before: Object.fromEntries((['ecosystem', 'kind', 'pattern', 'version_range', 'note', 'priority', 'enabled', 'application_id', 'environment_id']).map((k) => [k, existing[k]])) });
+    { before: { ...Object.fromEntries((['ecosystem', 'kind', 'pattern', 'version_range', 'note', 'priority', 'enabled', 'application_id', 'environment_id']).map((k) => [k, existing[k]])), expires: expiryText(existing.expires_ts) } });
 }
 
 // one line per pattern, a bad line is reported and the rest still go in
-async function addMany(actor, { ecosystem, kind, note, scope, lines }) {
+async function addMany(actor, { ecosystem, kind, note, expires = null, scope, lines }) {
   const added = [];
   const skipped = [];
   for (const line of lines) {
     try {
       const pattern = checkPattern(line, ecosystem);
       await rules.upsert(
-        { ecosystem, pattern, kind, application_id: scope.app, environment_id: scope.env, note, created_by: actor.name },
-        { note: 'values' }
+        { ecosystem, pattern, kind, application_id: scope.app, environment_id: scope.env, note, expires_at: expires, created_by: actor.name },
+        // a paste with no date leaves an existing rule's expiry alone, re-pasting a list must not make a temp allow permanent
+        expires ? { note: 'values', expires_at: 'values' } : { note: 'values' }
       );
       added.push(pattern);
     } catch (err) {
@@ -106,15 +113,22 @@ async function addMany(actor, { ecosystem, kind, note, scope, lines }) {
       ecosystem, pattern, kind, version_range: '', enabled: 1, application_id: scope.app, environment_id: scope.env
     })), actor);
   }
-  await audit(actor, 'rule.bulk', ecosystem === 'npm' ? kind : `${ecosystem}:${kind}`, `${added.length} added, ${skipped.length} skipped`);
+  await audit(actor, 'rule.bulk', ecosystem === 'npm' ? kind : `${ecosystem}:${kind}`,
+    `${added.length} added, ${skipped.length} skipped${expires ? `, expiring ${expiryText(expires)}` : ''}`);
   return { added: added.length, skipped };
 }
 
 // ids are already integers
-async function act(actor, action, ids) {
+async function act(actor, action, ids, { days = 0 } = {}) {
   const skipped = [];
   let affected = 0;
-  if (action === 'delete') {
+  if (action === 'extend') {
+    // say which ones had no date, otherwise "changed 3 of 5" is a riddle
+    for (const row of await rules.byIds(ids)) {
+      if (row.expires_at === null || row.expires_at === undefined) skipped.push({ id: row.id, pattern: row.pattern, error: 'never expires, nothing to extend' });
+    }
+    affected = await rules.extend(ids, days);
+  } else if (action === 'delete') {
     affected = await rules.removeMany(ids);
   } else if (action === 'enable' || action === 'disable') {
     affected = await rules.setEnabled(ids, action === 'enable');
@@ -134,8 +148,9 @@ async function act(actor, action, ids) {
     }
   }
   policy.invalidate();
-  await audit(actor, `rule.bulk.${action}`, `${affected} rules`, ids.slice(0, 50).join(','));
+  await audit(actor, `rule.bulk.${action}`, `${affected} rules`,
+    (action === 'extend' ? `${days} days: ` : '') + ids.slice(0, 50).join(','));
   return { affected, skipped };
 }
 
-module.exports = { ruleTarget, list, withImageCache, get, save, update, remove, addMany, act };
+module.exports = { ruleTarget, expiryText, list, withImageCache, get, save, update, remove, addMany, act };

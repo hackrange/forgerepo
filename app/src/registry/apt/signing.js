@@ -22,6 +22,8 @@ const KEYRINGS = ['/usr/share/keyrings/debian-archive-keyring.gpg', '/usr/share/
 // a program's output, fed some input. never through a shell
 function run(cmd, args, input, { timeoutMs = 60000 } = {}) {
   return new Promise((resolve, reject) => {
+    // cmd is gpg or gpgv, both constants. no shell either
+    // nosemgrep: detect-child-process
     const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', GNUPGHOME: HOME, LANG: 'C' } });
     const out = [];
     const err = [];

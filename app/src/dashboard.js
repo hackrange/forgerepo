@@ -20,7 +20,7 @@ function invalidate() {
 
 async function compute() {
   const [rules, pkgs, pending, denies, allows, cacheInfo, integrityOpen, quarantineOpen, malwareFlagged] = await Promise.all([
-    db.one("SELECT SUM(kind='allow') AS allows, SUM(kind='deny') AS denies FROM rules WHERE enabled = 1"),
+    db.one("SELECT SUM(kind='allow') AS allows, SUM(kind='deny') AS denies FROM rules WHERE enabled = 1 AND (expires_at IS NULL OR expires_at > NOW())"),
     db.one('SELECT COUNT(*) AS n FROM packages'),
     db.one("SELECT COUNT(*) AS n FROM requests WHERE status = 'pending'"),
     db.one("SELECT COUNT(*) AS n FROM access_log WHERE action = 'deny' AND ts > DATE_SUB(NOW(), INTERVAL 1 DAY)"),

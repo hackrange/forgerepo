@@ -1,6 +1,6 @@
 // The RubyGems front door: switched on, who is asking, and reads only.
 // Author: Tim Rice
-// gem and bundler send the token as the password in the source address (https://user:token@host/rubygems/)
+// gem and bundler send the token as the password in the source address (https://user:<token>@host/rubygems/)
 
 const db = require('../../db');
 const auth = require('../../security/auth');

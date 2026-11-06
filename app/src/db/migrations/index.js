@@ -42,7 +42,8 @@ const STEPS = [
   '033-forgerepo-name',
   '034-upstream-options',
   '035-known-malicious-scanner',
-  '036-drop-allow-publish'
+  '036-drop-allow-publish',
+  '037-rule-expiry'
 ];
 
 /**

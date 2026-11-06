@@ -220,11 +220,13 @@ async function main() {
   await dest.query("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'");
 
   // let db.js build the schema on the target so the DDL can't drift. re-require with new env
-  process.env.DB_HOST = target.host;
-  process.env.DB_PORT = String(target.port);
-  process.env.DB_USER = target.user;
-  process.env.DB_PASSWORD = target.password;
-  process.env.DB_NAME = target.database;
+  Object.assign(process.env, {
+    DB_HOST: target.host,
+    DB_PORT: String(target.port),
+    DB_USER: target.user,
+    DB_PASSWORD: target.password,
+    DB_NAME: target.database
+  });
   if (args.ssl) process.env.DB_SSL = String(args.ssl);
   delete require.cache[require.resolve('./config')];
   delete require.cache[require.resolve('./db')];
