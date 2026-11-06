@@ -11,7 +11,7 @@ import { route } from './routing.js';
 
 var rulesPage = 1;
 var rulesLimit = 50;
-var rulesFilter = { ecosystem: '', kind: '', q: '', cached: '', vuln: '', application: '', environment: '', expiry: '' };
+var rulesFilter = { ecosystem: '', kind: '', q: '', cached: '', vuln: '', application: '', environment: '', expiry: '', versions: '' };
 
 // shared by the list and its export so they match
 function rulesQuery() {
@@ -20,6 +20,7 @@ function rulesQuery() {
     (rulesFilter.cached ? '&cached=' + rulesFilter.cached : '') +
     (rulesFilter.vuln ? '&vuln=' + rulesFilter.vuln : '') +
     (rulesFilter.expiry ? '&expiry=' + rulesFilter.expiry : '') +
+    (rulesFilter.versions ? '&versions=' + rulesFilter.versions : '') +
     (rulesFilter.application ? '&application=' + encodeURIComponent(rulesFilter.application) : '') +
     (rulesFilter.environment ? '&environment=' + encodeURIComponent(rulesFilter.environment) : '') +
     (rulesFilter.q ? '&q=' + encodeURIComponent(rulesFilter.q) : '');
@@ -207,7 +208,7 @@ function viewRules(body) {
     if (can('rules:write')) body.appendChild(ruleForm(types, scopes));
 
     var typePick = ecoSelect(types, { all: 'All', value: rulesFilter.ecosystem });
-    var search = h('input', { type: 'text', value: rulesFilter.q, placeholder: 'name or note' });
+    var search = h('input', { type: 'text', value: rulesFilter.q, placeholder: 'name, note or version' });
     var kind = h('select', null, [
       h('option', { value: '' }, ['both kinds']),
       h('option', { value: 'allow', selected: rulesFilter.kind === 'allow' }, ['allow only']),
@@ -222,6 +223,12 @@ function viewRules(body) {
       h('option', { value: '' }, ['any advisory state']),
       h('option', { value: 'yes', selected: rulesFilter.vuln === 'yes' }, ['vulnerable']),
       h('option', { value: 'no', selected: rulesFilter.vuln === 'no' }, ['not vulnerable'])
+    ]);
+    var versionsFilter = h('select', null, [
+      h('option', { value: '' }, ['any kind of versions']),
+      h('option', { value: 'any', selected: rulesFilter.versions === 'any' }, ['any (every version)']),
+      h('option', { value: 'pinned', selected: rulesFilter.versions === 'pinned' }, ['exact versions']),
+      h('option', { value: 'range', selected: rulesFilter.versions === 'range' }, ['ranges'])
     ]);
     var expiryFilter = h('select', null, [
       h('option', { value: '' }, ['any expiry']),
@@ -246,6 +253,7 @@ function viewRules(body) {
         rulesFilter.cached = cachedPick.value;
         rulesFilter.vuln = vulnPick.value;
         rulesFilter.expiry = expiryFilter.value;
+        rulesFilter.versions = versionsFilter.value;
         rulesFilter.application = appFilter ? appFilter.value : '';
         rulesFilter.environment = envFilter ? envFilter.value : '';
         rulesPage = 1;
@@ -259,6 +267,7 @@ function viewRules(body) {
       envFilter ? h('div', null, [h('label', null, ['Environment']), envFilter]) : null,
       h('div', null, [h('label', null, ['Cache']), cachedPick]),
       h('div', null, [h('label', null, ['Advisories']), vulnPick]),
+      h('div', null, [h('label', null, ['Versions']), versionsFilter]),
       h('div', null, [h('label', null, ['Expiry']), expiryFilter]),
       h('div', null, [h('button', { type: 'submit' }, ['Filter'])])
     ]));

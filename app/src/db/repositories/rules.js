@@ -51,10 +51,23 @@ async function upsertMany(columns, rows, onDuplicate, q = db.query) {
 
 // ---------------------------------------------------------------- the list
 
+// true when a version_range is a real range rather than a list of exact versions
+const RANGEY = `(REPLACE(REPLACE(REPLACE(version_range, '==', ''), '[', ''), ']', '') REGEXP '[<>=^~*,!()]'
+  OR version_range REGEXP '(^|[ .|])[xX]($|[ .|])')`;
+
 // filters arrive already checked. search is a LIKE term, application and environment are 'none' or an id
 function filterClause(f) {
   const where = [];
   const params = [];
+  // any = every version (an empty range), pinned = exact versions only, range = anything with an operator or a star
+  // pip's == and nuget's [] still mean one version, and an x only counts as a wildcard on its own (1.x, not xenial)
+  if (f.versions === 'any') {
+    where.push("version_range = ''");
+  } else if (f.versions === 'pinned') {
+    where.push(`(version_range <> '' AND NOT ${RANGEY})`);
+  } else if (f.versions === 'range') {
+    where.push(`(version_range <> '' AND ${RANGEY})`);
+  }
   if (f.expiry === 'expired') {
     where.push(`NOT ${LIVE}`);
   } else if (f.expiry === 'temporary') {
@@ -80,8 +93,9 @@ function filterClause(f) {
     }
   }
   if (f.search) {
-    where.push('(pattern LIKE ? OR note LIKE ?)');
-    params.push(f.search, f.search);
+    // the range too, so 4.17.21 finds every rule that names it
+    where.push('(pattern LIKE ? OR note LIKE ? OR version_range LIKE ?)');
+    params.push(f.search, f.search, f.search);
   }
   // cached = we hold the versions the rule names, not just *something*. wildcards never count. images are worked out
   // from the layers on disk, which SQL can't see through, so the service hands over the image rules that qualify
