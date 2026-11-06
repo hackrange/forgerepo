@@ -119,10 +119,12 @@ async function addMany(actor, { ecosystem, kind, note, expires = null, scope, li
 }
 
 // ids are already integers
-async function act(actor, action, ids, { days = 0 } = {}) {
+async function act(actor, action, ids, { days = 0, expiresTs = null } = {}) {
   const skipped = [];
   let affected = 0;
-  if (action === 'extend') {
+  if (action === 'expire') {
+    affected = await rules.setExpiry(ids, expiresTs);
+  } else if (action === 'extend') {
     // say which ones had no date, otherwise "changed 3 of 5" is a riddle
     for (const row of await rules.byIds(ids)) {
       if (row.expires_at === null || row.expires_at === undefined) skipped.push({ id: row.id, pattern: row.pattern, error: 'never expires, nothing to extend' });
@@ -149,7 +151,7 @@ async function act(actor, action, ids, { days = 0 } = {}) {
   }
   policy.invalidate();
   await audit(actor, `rule.bulk.${action}`, `${affected} rules`,
-    (action === 'extend' ? `${days} days: ` : '') + ids.slice(0, 50).join(','));
+    (action === 'extend' ? `${days} days: ` : '') + (action === 'expire' ? `until ${expiryText(expiresTs)}: ` : '') + ids.slice(0, 50).join(','));
   return { affected, skipped };
 }
 

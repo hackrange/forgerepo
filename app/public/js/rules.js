@@ -289,6 +289,19 @@ function viewRules(body) {
       ' — tick the ones still needed and use Extend below.'
     ]));
 
+    // allowed, known bad, and nothing to stop it lasting forever. the one that should keep you up
+    body.appendChild(h('p', { class: 'hint' }, [
+      link('Show vulnerable with no expiry', function () {
+        rulesFilter.kind = 'allow';
+        rulesFilter.vuln = 'yes';
+        rulesFilter.expiry = 'permanent';
+        rulesPage = 1;
+        route();
+      }),
+      ' — allow rules covering a version with an advisory that never run out. Use Select vulnerable, then Set expiry ' +
+      'below to give them a deadline instead of a forever.'
+    ]));
+
     // the other combo people want: approved AND known bad. yikes
     body.appendChild(h('p', { class: 'hint' }, [
       'Advisories counts what the last vulnerability scan found against the versions a rule ' +
@@ -331,6 +344,8 @@ function viewRules(body) {
     var writable = can('rules:write');
 
     var selectAll = h('input', { type: 'checkbox', title: 'select everything on this page' });
+    var byId = {};
+    d.rules.forEach(function (r) { byId[String(r.id)] = r; });
     var counter = h('span', { class: 'muted' }, ['none selected']);
 
     var editBox = h('div', null, []);
@@ -509,6 +524,36 @@ function viewRules(body) {
           h('button', { onclick: function () { bulk('disable'); } }, ['Disable']),
           h('button', { class: 'danger', onclick: function () { bulk('delete', 'Delete %n rule(s)? This cannot be undone.'); } }, ['Delete'])
         ])
+      ]));
+
+      // a deadline for rules that have none, or a new one for those that do
+      var setTo = expiryPick(Math.floor(Date.now() / 1000) + 30 * 86400);
+      body.appendChild(h('fieldset', null, [
+        h('legend', null, ['Set an expiry on the ticked rules']),
+        h('p', { class: 'hint' }, [
+          'Puts this date on every ticked rule, the ones that never expired included, replacing whatever date they had. ' +
+          'When it passes the rule stops counting and anything it alone let in is removed from the cache. ',
+          link('Select vulnerable', function () {
+            var n = 0;
+            boxes.forEach(function (b) {
+              var row = byId[b.value];
+              var on = !!(row && Number(row.vuln_findings) > 0);
+              b.checked = on;
+              if (on) { selected[b.value] = true; n += 1; } else delete selected[b.value];
+            });
+            refreshCount();
+            if (!n) alert('Nothing on this page covers a version with an advisory.');
+          }),
+          ' ticks every rule on this page with one.'
+        ]),
+        setTo.el,
+        h('div', null, [h('button', {
+          onclick: function () {
+            var at = setTo.value();
+            if (!at) return alert('Pick a date, or use the editor to make a rule permanent again.');
+            bulk('expire', 'Set %n rule(s) to expire ' + new Date(at).toLocaleString() + '?', { expires_at: at });
+          }
+        }, ['Set expiry'])])
       ]));
 
       // more time on a time boxed exception, expired or not

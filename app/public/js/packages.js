@@ -3,7 +3,7 @@
 
 import { h, link } from './dom.js';
 import { ecoPkg } from './ecosystems.js';
-import { bytes, can, modal, notice, pager, table, when } from './ui.js';
+import { bytes, can, modal, notice, pager, table, untilCell, when } from './ui.js';
 import { api } from './api.js';
 import { section } from './frame.js';
 import { quickAllow } from './overview.js';
@@ -74,7 +74,7 @@ function viewPackages(body) {
 
     body.appendChild(table(
       [{ label: selectAll }, 'Package', 'Status', { label: 'Hits', num: true }, { label: 'Blocked', num: true },
-        { label: 'Cached', num: true }, 'Last used', 'Actions'],
+        { label: 'Cached', num: true }, 'Expires', 'Last used', 'Actions'],
       d.packages.map(function (p) {
         var tick = h('input', { type: 'checkbox', value: p.name });
         if (!canPurge && !canRule) tick.setAttribute('disabled', 'disabled');
@@ -102,6 +102,7 @@ function viewPackages(body) {
           String(p.hits),
           String(p.blocked_hits),
           p.cached_versions + ' (' + bytes(p.cached_bytes) + ')',
+          expiryOf(p),
           when(p.last_access),
           actions
         ];
@@ -176,7 +177,7 @@ function storedList(body, d) {
     ? 'Images with files on this box. Cached counts the tags held completely, every layer of every image in the list, which is what Cache now on the Rules page delivers. Pulls come from the traffic log, so they cover as long as it is kept.'
     : 'Projects with files on this box. Cached counts the releases held.']));
   body.appendChild(table(
-    ['Package', 'Status', { label: image ? 'Pulls' : 'Downloads', num: true }, { label: 'Cached', num: true }, 'Last used', 'Actions'],
+    ['Package', 'Status', { label: image ? 'Pulls' : 'Downloads', num: true }, { label: 'Cached', num: true }, 'Expires', 'Last used', 'Actions'],
     d.packages.map(function (p) {
       // the "of n tags" half opens the whole list
       var cached = image
@@ -189,6 +190,7 @@ function storedList(body, d) {
         h('span', { class: p.allowed ? 'allow' : 'deny', title: p.reason || '' }, [p.allowed ? 'allowed' : 'blocked']),
         String(p.hits || 0),
         h('span', { class: image && p.cached_versions < p.known_tags ? 'warn' : null }, cached),
+        expiryOf(p),
         when(p.last_access),
         h('span', { class: 'actions' }, [link(p.files + ' file' + (Number(p.files) === 1 ? '' : 's'), function () { showArtifacts(packagesType, p.name); })])
       ];
@@ -217,6 +219,14 @@ function showTags(name) {
       }))
     ]));
   }).catch(function (e) { box.set(notice(e.message, 'err')); });
+}
+
+// only an allowed package has something to run out. the tooltip names the rule doing the allowing
+function expiryOf(p) {
+  if (!p.allowed) return '';
+  var cell = untilCell(p.expires_ts);
+  if (p.expires_rule) cell.setAttribute('title', 'allowed by ' + p.expires_rule + ', ' + (cell.getAttribute('title') || ''));
+  return cell;
 }
 
 export { viewPackages };

@@ -219,6 +219,7 @@ function removeEcosystems(types, q = db.query) {
 function enabledForEngine() {
   return db.query(
     `SELECT r.id, r.ecosystem, r.pattern, r.kind, r.version_range, r.application_id, r.environment_id, r.note, r.priority, r.enabled,
+            UNIX_TIMESTAMP(r.expires_at) AS expires_ts,
             a.name AS application_name, e.name AS environment_name
        FROM rules r
        LEFT JOIN applications a ON a.id = r.application_id

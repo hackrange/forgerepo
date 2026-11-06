@@ -124,8 +124,11 @@ router.post(
   '/rules/actions',
   auth.requirePerm('rules:write'),
   wrap(async (req, res) => {
-    const action = oneOf(req.body.action, ['delete', 'allow', 'deny', 'enable', 'disable', 'extend'], null);
-    if (!action) fail(400, 'pick delete, allow, deny, enable, disable or extend');
+    const action = oneOf(req.body.action, ['delete', 'allow', 'deny', 'enable', 'disable', 'extend', 'expire'], null);
+    if (!action) fail(400, 'pick delete, allow, deny, enable, disable, extend or expire');
+    // expire = put this date on them, permanent ones included. has to be ahead of us, a date in the past is a delete in disguise
+    const expiresTs = action === 'expire' ? checkExpiry(req.body.expires_at, { future: true }) : null;
+    if (action === 'expire' && !expiresTs) fail(400, 'pick the date they should run out');
     const days = action === 'extend' ? intIn(req.body.days, 1, 365, 0) : 0;
     if (action === 'extend' && !days) fail(400, 'extend by 1 to 365 days');
 
@@ -134,7 +137,7 @@ router.post(
     if (raw.length > 1000) fail(400, 'that is over a thousand rules, do it in batches');
     const ids = [...new Set(raw.map(idParam))];
 
-    const { affected, skipped } = await rules.act(actorOf(req), action, ids, { days });
+    const { affected, skipped } = await rules.act(actorOf(req), action, ids, { days, expiresTs });
     res.json({ ok: true, action, affected, skipped });
   })
 );

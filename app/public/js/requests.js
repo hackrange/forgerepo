@@ -3,7 +3,7 @@
 
 import { state } from './state.js';
 import { h, link } from './dom.js';
-import { can, clear, modal, notice, pager, table, when } from './ui.js';
+import { can, clear, modal, notice, pager, table, untilCell, when } from './ui.js';
 import { api } from './api.js';
 import { section } from './frame.js';
 import { ecoHints, ecoName, ecoPkg, ecoSelect } from './ecosystems.js';
@@ -135,7 +135,7 @@ function viewRequests(body) {
 
     // a request from before PyPI got switched off still says it was a PyPI one
     var showType = types.length > 1 || d.requests.some(function (r) { return r.ecosystem && r.ecosystem !== 'npm'; });
-    var requestCols = [{ label: selectAll }, 'Package', 'Versions', 'Vulnerabilities', 'Asked by', 'Why', 'Status', 'When', 'Actions'];
+    var requestCols = [{ label: selectAll }, 'Package', 'Versions', 'Vulnerabilities', 'Asked by', 'Why', 'Status', 'Expires', 'When', 'Actions'];
     body.appendChild(table(
       requestCols,
       d.requests.map(function (r) {
@@ -182,6 +182,7 @@ function viewRequests(body) {
           askedBy(r),
           r.reason || '',
           statusCell(r),
+          expiresCell(r),
           when(r.created_at),
           actions
         ];
@@ -347,6 +348,14 @@ function viewRequests(body) {
 // the status, and what auto approve made of it when it looked
 var AUTO_WORDS = { checking: 'being scanned and checked now', waiting: 'checking, will look again', clear: 'checked', flagged: 'needs a person', approved: 'auto approved' };
 var AUTO_CLASS = { clear: 'allow', flagged: 'deny', approved: 'allow' };
+// approved only. what the approval's allow rule says about running out
+function expiresCell(r) {
+  if (r.status !== 'approved') return '';
+  if (r.rule_state === 'missing') return h('span', { class: 'muted', title: 'the allow rule this approval wrote is gone' }, ['no rule']);
+  if (r.rule_state === 'several') return h('span', { class: 'muted', title: 'the package has several allow rules, see the Rules page' }, ['see rules']);
+  return untilCell(r.expires_ts);
+}
+
 function statusCell(r) {
   var text = r.status + (r.hits > 1 ? ' (asked ' + r.hits + ' times)' : '');
   if (!r.auto_state) return text;

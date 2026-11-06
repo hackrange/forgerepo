@@ -20,8 +20,21 @@ const { fail } = require('../lib/errors');
 
 // ---------------------------------------------------------------- reading
 
-function list(filters, paging) {
-  return requests.page(filters, paging);
+// approved rows say when the allow rule they wrote runs out, found the same way the edit box finds it
+async function list(filters, paging) {
+  const res = await requests.page(filters, paging);
+  const now = Date.now() / 1000;
+  for (const row of res.rows) {
+    if (row.status !== 'approved') continue;
+    const rule = await approvalRule(row);
+    if (!rule) row.rule_state = 'missing';
+    else if (rule.ambiguous) row.rule_state = 'several';
+    else {
+      row.expires_ts = rule.expires_ts ? Number(rule.expires_ts) : null;
+      row.rule_state = row.expires_ts && row.expires_ts <= now ? 'expired' : 'live';
+    }
+  }
+  return res;
 }
 
 // not yours = 404, so no IDOR id-poking

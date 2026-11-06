@@ -121,6 +121,16 @@ function tabs(body, current, items, onPick) {
   return panels;
 }
 
+// when an allow runs out: never, a date (yellow inside 3 days), or expired in red
+function untilCell(ts) {
+  if (!ts) return h('span', { class: 'muted' }, ['never']);
+  var ms = Number(ts) * 1000;
+  var at = new Date(ms).toLocaleString();
+  if (ms <= Date.now()) return h('span', { class: 'deny', title: 'the allow rule has run out, the package is blocked again' }, ['expired ' + at]);
+  var days = Math.ceil((ms - Date.now()) / 86400000);
+  return h('span', { class: days <= 3 ? 'warn' : null, title: days + ' day(s) left' }, [at]);
+}
+
 function when(value) {
   if (!value) return '';
   return String(value).replace('T', ' ').slice(0, 19);
@@ -190,5 +200,5 @@ function modal(title, content) {
 }
 
 export {
-  SVGNS, anvilMark, brandMark, bytes, can, clear, modal, notice, pager, setTitle, svgIcon, table, tabs, when
+  SVGNS, anvilMark, brandMark, bytes, can, clear, modal, notice, pager, setTitle, svgIcon, table, tabs, untilCell, when
 };

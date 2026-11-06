@@ -18,6 +18,10 @@ async function list(search, paging, type = 'npm') {
     const verdict = await policy.checkPackage(row.name, adapter);
     row.allowed = verdict.allowed;
     row.reason = verdict.reason;
+    // the allow that let it in, and when that runs out. null = it doesn't
+    const r = verdict.allowed ? verdict.rule : null;
+    row.expires_ts = r && r.expires_ts ? Number(r.expires_ts) : null;
+    row.expires_rule = r && r.expires_ts ? `${r.pattern}${r.version_range ? ` ${r.version_range}` : ''}` : null;
   }
   // an image counts the tags it holds completely, layers and all
   if (type === 'oci') {
