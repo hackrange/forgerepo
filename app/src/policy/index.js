@@ -16,6 +16,8 @@ const pypiName = require('../ecosystems/pypi/name');
 const { Glob } = require('../lib/glob');
 
 let rules = [];
+// the raw rows the last load was built from, to tell the cache what changed
+let lastRows = null;
 let loadedAt = 0;
 let dirty = true;
 // md5 of the rule rows we built from. same print = same answers, so nothing gets redone
@@ -58,6 +60,15 @@ async function reload(force) {
     };
   });
   rules.sort(compare);
+  // not on the first load, that's not a change, that's a boot
+  if (lastRows) {
+    try {
+      if (require('./cache-follow').changed(lastRows, rows)) setImmediate(() => require('./cache-follow').drain().catch(() => {}));
+    } catch (err) {
+      // the cache can catch up on the next change, the rules can't wait for it
+    }
+  }
+  lastRows = rows;
   compiled.clear();
   verdicts.clear();
   remembered = 0;

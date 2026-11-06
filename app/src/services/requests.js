@@ -382,6 +382,74 @@ async function approveMany(actor, ids, rows, { note, addRule }) {
   return { approved, skipped };
 }
 
+// which allow rule a request's approval wrote. the request's own range first. auto approve pins to what it checked, so
+// next the one whose note is the decision note, and last the only allow rule the package has. more than that is a guess
+async function approvalRule(row) {
+  const list = await rules.allowRulesFor(row.ecosystem || 'npm', row.package_name);
+  const exact = list.find((r) => (r.version_range || '') === (row.version_range || ''));
+  if (exact) return exact;
+  const noted = row.decision_note ? list.filter((r) => r.note === row.decision_note) : [];
+  if (noted.length === 1) return noted[0];
+  if (list.length === 1) return list[0];
+  return list.length ? { ambiguous: list.length } : null;
+}
+
+// the edit box: an expiry (or none) on the allow rule of each ticked approved request. the rest are only touched when
+// asked to approve them too, and a blocked one never is, its deny rule outranks any allow on purpose
+async function editMany(actor, ids, rows, { expiresTs, approveOthers, note }) {
+  const found = new Set(rows.map((r) => r.id));
+  const skipped = ids.filter((id) => !found.has(id)).map((id) => ({ id, error: 'no such request' }));
+  const ruleIds = new Set();
+  const edited = [];
+  const approved = [];
+  const when = expiresTs ? new Date(expiresTs * 1000).toISOString() : 'never';
+
+  for (const row of rows) {
+    const eco = row.ecosystem || 'npm';
+    if (row.status === 'approved') {
+      const rule = await approvalRule(row);
+      if (!rule) { skipped.push({ id: row.id, name: row.package_name, error: 'has no allow rule any more, it may have been deleted' }); continue; }
+      if (rule.ambiguous) { skipped.push({ id: row.id, name: row.package_name, error: `has ${rule.ambiguous} allow rules and none is clearly this one, edit it on the Rules page` }); continue; }
+      ruleIds.add(rule.id);
+      edited.push(row);
+      continue;
+    }
+    if (row.status === 'blocked') {
+      skipped.push({ id: row.id, name: row.package_name, error: 'is blocked by a deny rule, take that off on the Rules page first' });
+      continue;
+    }
+    if (!approveOthers) {
+      skipped.push({ id: row.id, name: row.package_name, error: `is ${row.status}, tick "also approve" to approve it with this expiry` });
+      continue;
+    }
+    const why = note || `approved request #${row.id}${expiresTs ? `, until ${when}` : ''}`;
+    try {
+      const won = await db.transaction(async (q) => {
+        if (!(await requests.reopenApproved({ id: row.id, note: why, resolvedBy: actor.id }, q))) return false;
+        await rules.upsert(
+          { ecosystem: eco, pattern: row.package_name, kind: 'allow', version_range: row.version_range || '', note: why, expires_at: expiresTs, created_by: actor.name },
+          { note: 'values', enabled: 1, expires_at: 'values' },
+          q
+        );
+        return true;
+      });
+      if (!won) { skipped.push({ id: row.id, name: row.package_name, error: 'changed by somebody else a moment ago' }); continue; }
+      approved.push(row);
+      await audit(actor, 'request.approve', row.package_name, `${why} (from the edit box)`,
+        { before: { status: row.status }, after: { status: 'approved', allow_rule: row.version_range || 'every version', expires: when } });
+    } catch (err) {
+      log.error(`bulk edit approve failed on ${row.package_name}`, err.message);
+      skipped.push({ id: row.id, name: row.package_name, error: 'could not approve it' });
+    }
+  }
+
+  const changed = await rules.setExpiry([...ruleIds], expiresTs);
+  if (changed || approved.length) policy.invalidate();
+  await audit(actor, 'request.edit.bulk', `${edited.length + approved.length} request(s)`,
+    `expires ${when}: ${[...edited, ...approved].map((r) => r.package_name).slice(0, 50).join(', ')}`);
+  return { edited: edited.length, approved: approved.length, rules: ruleIds.size + approved.length, skipped };
+}
+
 // reject + deny rule in one move so they can't drift. priority 1000 so a whitelist can't beat it
 async function block(actor, row, { note, range }) {
   if (row.status !== 'pending') fail(400, 'that request is already settled');
@@ -427,4 +495,4 @@ async function reject(actor, row, note) {
   await audit(actor, 'request.reject', row.package_name, note, { before: { status: 'pending' }, after: { status: 'rejected' } });
 }
 
-module.exports = { list, load, advisories, ask, askMany, withdraw, approve, approveMany, claimAuto, block, clear, reject, worstOf };
+module.exports = { list, load, advisories, ask, askMany, withdraw, approve, approveMany, editMany, claimAuto, block, clear, reject, worstOf };

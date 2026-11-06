@@ -808,4 +808,4 @@ function ruleForm(types, scopes) {
   ]);
 }
 
-export { scopeLabel, scopeLists, scopePick, viewRules };
+export { expiryPick, scopeLabel, scopeLists, scopePick, viewRules };

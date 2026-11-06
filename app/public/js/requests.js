@@ -3,12 +3,13 @@
 
 import { state } from './state.js';
 import { h, link } from './dom.js';
-import { can, clear, pager, table, when } from './ui.js';
+import { can, clear, modal, notice, pager, table, when } from './ui.js';
 import { api } from './api.js';
 import { section } from './frame.js';
 import { ecoHints, ecoName, ecoPkg, ecoSelect } from './ecosystems.js';
 import { runResolve } from './review.js';
 import { route } from './routing.js';
+import { expiryPick } from './rules.js';
 
 var requestsPage = 1;
 var requestsStatus = 'pending';
@@ -32,7 +33,8 @@ function askedBy(r) {
 }
 
 // Separate call since it goes out to osv, the list should show up regardless
-function fillVulns(requests, cells) {
+// vulnerable gets filled with the ids that came back with findings, for Select vulnerable
+function fillVulns(requests, cells, vulnerable) {
   var ids = requests.map(function (r) { return r.id; });
   if (!ids.length) return;
 
@@ -46,9 +48,11 @@ function fillVulns(requests, cells) {
 
   api('GET', '/requests/vulnerabilities?ids=' + ids.join(','))
     .then(function (d) {
+      if (vulnerable) vulnerable.loaded = true;
       ids.forEach(function (id) {
         var cell = cells[id];
         var v = d.results[id];
+        if (vulnerable && v && v.findings && v.findings.length) vulnerable.ids[id] = true;
         if (!v) return say(cell, 'muted', 'not checked');
         if (v.error) return say(cell, 'muted', 'could not check', v.error);
         if (v.note) return say(cell, 'muted', 'scanned when pulled', v.note);
@@ -110,11 +114,12 @@ function viewRequests(body) {
     var rowStatus = {};
     var boxes = [];
     var selectAll = h('input', { type: 'checkbox', title: 'select everything on this page' });
-    var counter = h('span', { class: 'muted' }, ['none selected']);
+    var counters = [];
+    var vulnerable = { loaded: false, ids: {} };
 
     function retally() {
       var n = Object.keys(selected).length;
-      counter.textContent = n ? n + ' selected' : 'none selected';
+      counters.forEach(function (c) { c.textContent = n ? n + ' selected' : 'none selected'; });
     }
     selectAll.addEventListener('change', function () {
       boxes.forEach(function (b) {
@@ -184,9 +189,132 @@ function viewRequests(body) {
       })
     ));
 
-    fillVulns(d.requests, vulnCells);
+    fillVulns(d.requests, vulnCells, vulnerable);
+
+    var listTable = body.lastChild;
+
+    function tickOnly(pick) {
+      boxes.forEach(function (b) {
+        if (b.disabled) return;
+        b.checked = !!pick[b.value];
+        if (b.checked) selected[b.value] = true; else delete selected[b.value];
+      });
+      selectAll.checked = false;
+      retally();
+    }
+
+    function editSelected() {
+      var ids = Object.keys(selected).map(Number);
+      if (!ids.length) return alert('Tick a few requests first.');
+      var notApproved = ids.filter(function (id) { return rowStatus[id] !== 'approved' && rowStatus[id] !== 'blocked'; });
+      var blocked = ids.filter(function (id) { return rowStatus[id] === 'blocked'; });
+      var expires = expiryPick(null);
+      var also = h('input', { type: 'checkbox' });
+      var note = h('input', { type: 'text', placeholder: 'why, goes on the ones approved here' });
+      var out = h('div', null, []);
+      var box;
+      var save = h('button', {
+        type: 'button',
+        onclick: function () {
+          clear(out);
+          api('POST', '/requests/bulk-edit', { ids: ids, expires_at: expires.value(), approve_others: also.checked, note: note.value.trim() })
+            .then(function (res) {
+              selected = {};
+              var msg = (res.edited ? res.edited + ' approved request(s) updated. ' : '') +
+                (res.approved ? res.approved + ' approved now. ' : '');
+              if (res.skipped && res.skipped.length) {
+                alert((msg || 'Nothing changed. ') + 'Left alone ' + res.skipped.length + ':\n\n' +
+                  res.skipped.slice(0, 15).map(function (x) { return (x.name || x.id) + ' ' + x.error; }).join('\n'));
+              }
+              box.close();
+              route();
+            })
+            .catch(function (e) { out.appendChild(notice(e.message, 'err')); });
+        }
+      }, ['Save']);
+      box = modal('Edit ' + ids.length + ' request(s)', h('div', null, [
+        h('p', { class: 'hint' }, [
+          'Sets when the allow rule each approved request wrote runs out. Leave it empty, or pick never, to make them ' +
+          'permanent again. Once it passes the package is blocked and its cached copies are removed.'
+        ]),
+        expires.el,
+        notApproved.length ? h('div', null, [
+          h('label', null, [also, ' Also approve the ' + notApproved.length + ' ticked request(s) that are not approved yet, with this expiry']),
+          h('label', null, ['Note']), note
+        ]) : null,
+        blocked.length ? h('p', { class: 'hint' }, [
+          blocked.length + ' ticked request(s) are blocked by a deny rule and are left alone. Take the deny off on the Rules page first.'
+        ]) : null,
+        out,
+        h('div', null, [save, h('button', { type: 'button', onclick: function () { box.close(); } }, ['Cancel'])])
+      ]));
+    }
+
+    function approveSelected() {
+      var ids = Object.keys(selected).map(Number).filter(function (id) {
+        return rowStatus[id] === 'pending';
+      });
+      if (!ids.length) {
+        return alert(Object.keys(selected).length
+          ? 'None of the ticked requests are still pending. Use Edit selected to approve a rejected or withdrawn one with an expiry.'
+          : 'Tick a few requests first.');
+      }
+      if (!confirm('Approve ' + ids.length + ' request(s)?\n\n' +
+        'An allow rule is written for each package, for the versions it asked for.')) return;
+      var note = prompt('Any note to go with approving these ' + ids.length + '? It goes on all of them.', '');
+      if (note === null) return;
+      api('POST', '/requests/bulk-approve', { ids: ids, note: note, add_rule: true })
+        .then(function (res) {
+          selected = {};
+          if (res.skipped && res.skipped.length) {
+            alert('Approved ' + res.affected + '. Left alone ' + res.skipped.length + ':\n\n' +
+              res.skipped.slice(0, 10).map(function (x) {
+                return (x.name || x.id) + ': ' + x.error;
+              }).join('\n'));
+          }
+          route();
+        })
+        .catch(function (e) { alert(e.message); });
+    }
+
+    function clearSelected() {
+      var ids = Object.keys(selected).map(Number);
+      if (!ids.length) return alert('Tick a few requests first.');
+      if (!confirm('Clear ' + ids.length + ' request(s)? No rules are written and nothing is decided.')) return;
+      api('POST', '/requests/bulk-clear', { ids: ids })
+        .then(function (res) {
+          selected = {};
+          if (res.cleared !== ids.length) alert('Cleared ' + res.cleared + ' of ' + ids.length + '.');
+          route();
+        })
+        .catch(function (e) { alert(e.message); });
+    }
+
+    // the same bar above and below the list, a long page shouldn't mean scrolling to act
+    function actionBar() {
+      var counter = h('span', { class: 'muted' }, ['none selected']);
+      counters.push(counter);
+      return h('div', { class: 'row' }, [
+        counter,
+        h('button', { type: 'button', onclick: approveSelected }, ['Approve selected']),
+        can('rules:write') ? h('button', { type: 'button', onclick: editSelected }, ['Edit selected']) : null,
+        h('button', { type: 'button', onclick: clearSelected }, ['Clear selected']),
+        h('button', {
+          type: 'button',
+          title: 'tick every request on this page with a known advisory',
+          onclick: function () {
+            if (!vulnerable.loaded) return alert('Still checking the advisories, give it a moment.');
+            if (!Object.keys(vulnerable.ids).length) return alert('Nothing on this page has a known advisory.');
+            tickOnly(vulnerable.ids);
+          }
+        }, ['Select vulnerable']),
+        h('button', { type: 'button', onclick: function () { tickOnly({}); } }, ['Select none'])
+      ]);
+    }
 
     if (d.canDecide && d.requests.length) {
+      body.insertBefore(actionBar(), listTable);
+      body.appendChild(actionBar());
       body.appendChild(h('fieldset', null, [
         h('legend', null, ['The ticked requests']),
         h('p', { class: 'hint' }, [
@@ -203,50 +331,10 @@ function viewRequests(body) {
           'It is not a way to silence a package. If the same install is blocked again a fresh request ' +
           'appears, because there is no longer a row for it to be folded into.'
         ]),
-        counter,
-        h('div', null, [
-          h('button', {
-            onclick: function () {
-              var ids = Object.keys(selected).map(Number).filter(function (id) {
-                return rowStatus[id] === 'pending';
-              });
-              if (!ids.length) {
-                return alert(Object.keys(selected).length
-                  ? 'None of the ticked requests are still pending.'
-                  : 'Tick a few requests first.');
-              }
-              if (!confirm('Approve ' + ids.length + ' request(s)?\n\n' +
-                'An allow rule is written for each package, for the versions it asked for.')) return;
-              var note = prompt('Any note to go with approving these ' + ids.length + '? It goes on all of them.', '');
-              if (note === null) return;
-              api('POST', '/requests/bulk-approve', { ids: ids, note: note, add_rule: true })
-                .then(function (res) {
-                  selected = {};
-                  if (res.skipped && res.skipped.length) {
-                    alert('Approved ' + res.affected + '. Left alone ' + res.skipped.length + ':\n\n' +
-                      res.skipped.slice(0, 10).map(function (x) {
-                        return (x.name || x.id) + ': ' + x.error;
-                      }).join('\n'));
-                  }
-                  route();
-                })
-                .catch(function (e) { alert(e.message); });
-            }
-          }, ['Approve selected']),
-          h('button', {
-            onclick: function () {
-              var ids = Object.keys(selected).map(Number);
-              if (!ids.length) return alert('Tick a few requests first.');
-              if (!confirm('Clear ' + ids.length + ' request(s)? No rules are written and nothing is decided.')) return;
-              api('POST', '/requests/bulk-clear', { ids: ids })
-                .then(function (res) {
-                  selected = {};
-                  if (res.cleared !== ids.length) alert('Cleared ' + res.cleared + ' of ' + ids.length + '.');
-                  route();
-                })
-                .catch(function (e) { alert(e.message); });
-            }
-          }, ['Clear selected'])
+        h('p', { class: 'hint' }, [
+          'Edit sets an expiry on what approved requests allowed, for a time boxed exception. Select vulnerable ' +
+          'ticks the ones with a known advisory, so you can give just those a few days. It can also approve ' +
+          'a rejected or withdrawn request with an expiry, when you tick that in the box.'
         ])
       ]));
     }

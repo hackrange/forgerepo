@@ -188,6 +188,21 @@ async function extend(ids, days) {
   )).affectedRows;
 }
 
+// the allow rules for everyone on one package, for finding the one a request's approval wrote
+function allowRulesFor(ecosystem, pattern) {
+  return db.query(
+    `SELECT id, version_range, note, UNIX_TIMESTAMP(expires_at) AS expires_ts FROM rules
+      WHERE ecosystem = ? AND pattern = ? AND kind = 'allow' AND application_id = 0 AND environment_id = 0 AND api_key_id = 0`,
+    [ecosystem, pattern]
+  );
+}
+
+// null clears it
+async function setExpiry(ids, ts) {
+  if (!ids.length) return 0;
+  return (await db.query(`UPDATE rules SET expires_at = FROM_UNIXTIME(?) WHERE id IN (${ids.map(() => '?').join(',')})`, [ts, ...ids])).affectedRows;
+}
+
 async function setKind(id, kind) {
   return (await db.query('UPDATE rules SET kind = ? WHERE id = ?', [kind, id])).affectedRows;
 }
@@ -284,6 +299,6 @@ async function removeForKey(keyId, id) {
 
 module.exports = {
   advisoriesFor, ownedBy, pageOwnedBy, ownerOfKey, insertForKey, updateForKey, removeForKey,
-  LIVE, upsertSql, upsert, upsertMany, filterClause, imageCandidates, page, byId, byKey, byIds, update, remove, removeMany, setEnabled, extend, setKind, removeEcosystems,
+  LIVE, upsertSql, upsert, upsertMany, filterClause, imageCandidates, page, byId, byKey, byIds, update, remove, removeMany, setEnabled, extend, allowRulesFor, setExpiry, setKind, removeEcosystems,
   enabledForEngine, exactAllowPatterns
 };

@@ -7,7 +7,7 @@ const requests = require('../../services/requests');
 const dependencies = require('../../services/dependencies');
 const { ruleEcosystem } = require('../../policy/rulecheck');
 const { toolsType } = require('../shared/tools-type');
-const { checkRange } = require('../../policy/rulecheck');
+const { checkRange, checkExpiry } = require('../../policy/rulecheck');
 const { wrap } = require('../../lib/http');
 const { fail } = require('../../lib/errors');
 const { actorOf } = require('../../lib/actor');
@@ -105,6 +105,24 @@ router.post(
       packages: approved.map((r) => r.package_name).slice(0, 50),
       skipped
     });
+  })
+);
+
+// set or clear the expiry on what the ticked requests approved, and optionally approve the unsettled ones with it
+router.post(
+  '/requests/bulk-edit',
+  auth.requirePerm('requests:decide'),
+  auth.requirePerm('rules:write'),
+  wrap(async (req, res) => {
+    const raw = Array.isArray(req.body.ids) ? req.body.ids : [];
+    if (!raw.length) fail(400, 'nothing was selected');
+    if (raw.length > 500) fail(400, 'that is over five hundred, do it in batches');
+    const ids = [...new Set(raw.map(idParam))];
+    const expiresTs = checkExpiry(req.body.expires_at, { future: true });
+    const note = str(req.body.note, 1000, 'note');
+    const rows = await require('../../db/repositories/requests').byIds(ids, ownerFor(req));
+    const out = await requests.editMany(actorOf(req), ids, rows, { expiresTs, approveOthers: boolFlag(req.body.approve_others, false), note });
+    res.json({ ok: true, ...out });
   })
 );
 

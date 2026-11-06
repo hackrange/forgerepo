@@ -52,6 +52,8 @@ function definitions() {
 
     // a first boot can have hours of licenses to read, that is not stuck
     { name: 'license backfill', every: 10 * MINUTE, firstDelay: MINUTE, unref: true, stuckAfter: 12 * HOUR, run: licenses.backfill, onError: { level: 'silent' } },
+    // reloads the rules even with no traffic, so an expired allow gets its cached files cleared within the minute
+    { name: 'cache follows rules', every: 30000, firstDelay: 30000, unref: true, stuckAfter: 6 * HOUR, run: () => require('../policy/cache-follow').tick(), onError: { level: 'warn', message: 'clearing the cache after a rule change failed' } },
     { name: 'waiver sweep', every: MINUTE, unref: true, run: waivers.sweep, onError: { message: 'waiver sweep failed' } },
     { name: 'event delivery', every: events.TICK_MS, unref: true, run: events.tick, onError: { message: 'event worker failed' } },
     { name: 'event outbox cleanup', every: HOUR, unref: true, run: events.sweep, onError: { message: 'event outbox cleanup failed' } },

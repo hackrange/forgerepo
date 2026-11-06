@@ -121,6 +121,15 @@ async function settle({ id, status, note, resolvedBy }, q = db.query) {
   )).affectedRows;
 }
 
+// a settled request approved after all, from the edit box on the Requests page. pending, rejected or withdrawn only,
+// a blocked one has a deny rule behind it and that wants a person on the Rules page
+async function reopenApproved({ id, note, resolvedBy }, q = db.query) {
+  return (await q(
+    "UPDATE requests SET status = 'approved', decision_note = ?, resolved_at = NOW(), resolved_by = ? WHERE id = ? AND status IN ('pending', 'rejected', 'withdrawn')",
+    [note, resolvedBy, id]
+  )).affectedRows;
+}
+
 function summaries(ids) {
   return db.query(`SELECT id, package_name, status FROM requests WHERE id IN (${marks(ids)})`, ids);
 }
@@ -172,6 +181,7 @@ function pendingBefore(since) {
 }
 
 module.exports = {
+  reopenApproved,
   page, byId, byIds, openFor, bump, createFromPortal, pendingFromRegistry, foldIn, createFromRegistry,
   withdraw, settle, summaries, removeMany, markCleared, decidedSince, pendingSince, pendingBefore
 };
