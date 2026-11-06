@@ -69,9 +69,30 @@ router.post(
     if (outcome.alreadyAllowed) {
       return res.status(409).json({ error: `${name}${range ? ` ${range}` : ''} is already approved, you can install it now`, alreadyAllowed: true });
     }
-    const checking = require('../../services/auto-approve').waitNote(type.id);
+    let checking = require('../../services/auto-approve').waitNote(type.id);
+    // "any" is one version, say which, before they go looking for 5.0.0 in their lockfile
+    const pin = require('../../services/version-pin');
+    if (pin.isAnyRange(range)) {
+      const p = await pin.preview(type.id, name);
+      checking = `${require('../../services/auto-approve').ANY_NOTE} ${p.version ? `Right now that is ${p.said}.` : p.why ? `Right now: ${p.why}.` : ''} ${checking}`;
+    }
     if (outcome.bumped) return res.json({ ok: true, id: outcome.bumped, note: `You already had one open for this, it was bumped. ${checking}` });
     res.status(201).json({ ok: true, id: outcome.created, note: `Your request is in. ${checking}` });
+  })
+);
+
+// what asking for "any version" would get, for the request form. it goes out to the upstream, so not too often
+router.get(
+  '/requests/preview',
+  auth.requirePerm('requests:create'),
+  wrap(async (req, res) => {
+    const type = toolsType(ruleEcosystem(req.query.ecosystem, { mustBeOn: true }));
+    const raw = required(req.query.name, 214, 'package name');
+    if (!type.validName(raw)) fail(400, type.badName);
+    const gate = await auth.rateLimit(`preview:${req.user.id}`, 60, 10 * 60000);
+    if (!gate.ok) fail(429, 'slow down a moment');
+    const p = await require('../../services/version-pin').preview(type.id, type.name(raw));
+    res.json({ ...p, note: require('../../services/auto-approve').ANY_NOTE, cooling: require('../../services/auto-approve').coolingNote().trim() });
   })
 );
 

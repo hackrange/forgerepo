@@ -138,9 +138,30 @@ async function servePackument(req, res, name) {
       return refuse(res, req, name, null, { reason: 'no version of this package is approved' });
     }
 
+    // npm install x, x@* and x@latest all follow latest (npm prefers it whenever it fits the range), so latest is the
+    // newest approved stable version with no known advisory. pinned installs still get exactly what they asked for.
+    // nothing approved is clean: latest stays where it was, so nobody is stuck, and a request asks for a clean one
+    let notice = null;
+    const known = await audit.findingsForPackage(name);
+    if (!auditOnly) {
+      const tagsNow = filtered.doc['dist-tags'] || {};
+      if (tagsNow.latest && known.get(tagsNow.latest)) {
+        const clean = Object.keys(filtered.doc.versions || {})
+          .filter((v) => semver.valid(v) && !semver.prerelease(v) && !known.get(v))
+          .sort(semver.rcompare)[0];
+        if (clean) {
+          notice = `latest is ${clean}, the newest approved version of ${name} with no known advisories. ${tagsNow.latest} has one, ask for it by version if you really need it`;
+          excluded.push({ version: tagsNow.latest, kind: 'latest', reason: `not latest, it has a known advisory, ${clean} is` });
+          tagsNow.latest = clean;
+        } else {
+          notice = `every approved version of ${name} has a known advisory, ${tagsNow.latest} is the newest. A request for a clean version has been opened`;
+          await openRequest(req, name, null, `every approved version has a known advisory, the newest approved is ${tagsNow.latest}`, { served: true });
+        }
+      }
+    }
+
     // abuse `deprecated` so it shows during install, where devs actually look
     if (db.settings.getBool('audit_warn_install')) {
-      const known = await audit.findingsForPackage(name);
       for (const [version, meta] of Object.entries(filtered.doc.versions)) {
         const finding = known.get(version);
         if (!finding || !meta) continue;
@@ -175,6 +196,7 @@ async function servePackument(req, res, name) {
     res.set('content-type', 'application/json; charset=utf-8');
     res.set('cache-control', 'no-cache');
     if (squat && squat.warn) res.set('npm-notice', `TYPOSQUAT: ${name} ${squat.reason}`.replace(/[^\x20-\x7e]/g, ' '));
+    else if (notice) res.set('npm-notice', notice.replace(/[^\x20-\x7e]/g, ' ').slice(0, 400));
     res.send(body);
   } catch (err) {
     record(req, { package_name: name, action: 'error', status: err.status || 502, reason: err.message });

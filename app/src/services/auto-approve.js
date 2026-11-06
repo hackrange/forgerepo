@@ -91,6 +91,9 @@ function decide(f) {
 
 const pinsOf = (range) => String(range || '').split('||').map((s) => s.trim().replace(/^==/, '')).filter(Boolean);
 
+// how many of the newest releases "any version" looks through for one with no advisory
+const CLEAN_LOOK = 10;
+
 // the versions to approve: the exact ones asked for, or the newest one the range allows that is not cooling off.
 // a version still cooling off is never pinned, a pin skips the wait and that would undo the protection
 async function chooseVersions(eco, name, range) {
@@ -109,9 +112,10 @@ async function chooseVersions(eco, name, range) {
     else if (range) all = all.filter((v) => v.listed && kind.version.satisfies(v.version, range));
     else all = all.filter((v) => v.listed && !kind.version.isPrerelease(v.version));
     const ready = cooloff.exempt(name) ? all : all.filter((v) => !cooloff.reasonFor(v.published));
-    if (!ready.length) return all.length ? { wait: 'every matching version is still cooling off' } : { stop: 'no version matches what was asked for' };
+    if (!ready.length) return all.length ? { cooling: 'every matching version is still cooling off' } : { stop: 'no version matches what was asked for' };
+    if (exact && ready.length < all.length) return { cooling: `${all.filter((v) => !ready.includes(v)).map((v) => v.version).join(', ')} is still cooling off` };
     ready.sort((a, b) => kind.version.compare(b.version, a.version));
-    return { versions: (exact ? ready : [ready[0]]).map((v) => v.version) };
+    return { versions: (exact ? ready : [ready[0]]).map((v) => v.version), newest: ready.slice(0, CLEAN_LOOK).map((v) => v.version) };
   }
   if (eco === 'pypi') {
     const pypi = require('../registry/pypi/upstream');
@@ -125,9 +129,10 @@ async function chooseVersions(eco, name, range) {
     else all = all.filter((v) => !pypiVersion.isPrerelease || !pypiVersion.isPrerelease(v));
     const times = cooloff.mergeJsonTimes(new Map(), releases, pypiVersion.normalize || ((v) => v));
     const ready = all.filter((v) => !cooloff.exempt(name) ? !cooloff.pypiReason(times, v, pypiVersion.normalize || ((x) => x)) : true);
-    if (!ready.length) return all.length ? { wait: `every matching release is still cooling off` } : { stop: 'no release matches what was asked for' };
+    if (!ready.length) return all.length ? { cooling: `every matching release is still cooling off` } : { stop: 'no release matches what was asked for' };
+    if (exact && ready.length < all.length) return { cooling: `${all.filter((v) => !ready.includes(v)).join(', ')} is still cooling off` };
     ready.sort((a, b) => pypiVersion.compare(b, a));
-    return { versions: exact ? ready : [ready[0]] };
+    return { versions: exact ? ready : [ready[0]], newest: ready.slice(0, CLEAN_LOOK) };
   }
   const npm = require('../registry/npm/upstream');
   const { doc } = await npm.getPackument(name, 'full');
@@ -141,9 +146,29 @@ async function chooseVersions(eco, name, range) {
   }
   const cooling = cooloff.npmExclusions(name, doc);
   const ready = all.filter((v) => !cooling.has(v));
-  if (!ready.length) return all.length ? { wait: `${cooling.get(all[0]) || 'every matching version is still cooling off'}` } : { stop: 'no version matches what was asked for' };
+  if (!ready.length) return all.length ? { cooling: `${cooling.get(all[0]) || 'every matching version is still cooling off'}` } : { stop: 'no version matches what was asked for' };
+  if (exact && ready.length < all.length) {
+    const young = all.filter((v) => cooling.has(v));
+    return { cooling: `${young.join(', ')}: ${cooling.get(young[0])}` };
+  }
   ready.sort(semver.rcompare);
-  return { versions: exact ? ready : [ready[0]], doc };
+  return { versions: exact ? ready : [ready[0]], newest: ready.slice(0, CLEAN_LOOK), doc };
+}
+
+// "any version" means one version: the newest that is past its cool-off and has no known advisory. newer ones that do
+// are skipped and named, so whoever asked knows why they got 4.17.21 and not 5.0.0. none of the newest few clean = the
+// newest, and the usual check flags it for a person. the advisory feed not answering = the newest, unknown, a person looks
+async function chooseCurrent(eco, name) {
+  const c = await chooseVersions(eco, name, '');
+  if (c.stop || c.wait || c.cooling || eco === 'oci') return c;
+  const look = c.newest && c.newest.length ? c.newest : c.versions;
+  const adv = await advisoriesFor(eco, name, look);
+  for (let i = 0; i < look.length; i += 1) {
+    const a = adv.get(look[i]);
+    if (!a) return { ...c, versions: [look[0]], clean: null };
+    if (!a.count) return { ...c, versions: [look[i]], clean: true, skipped: look.slice(0, i).map((v) => ({ version: v, worst: adv.get(v).worst })) };
+  }
+  return { ...c, versions: [look[0]], clean: false };
 }
 
 // what the malware scanners said about one stored file
@@ -285,7 +310,11 @@ async function gather(row) {
     const squat = await require('../policy/typosquat').check(eco, name).catch(() => null);
     if (squat) return { stop: `the name looks like ${squat.lookalike} (${squat.technique}), a person has to look` };
   }
-  const chosen = await chooseVersions(eco, name, row.version_range);
+  const chosen = require('./version-pin').isAnyRange(row.version_range) && eco !== 'oci'
+    ? await chooseCurrent(eco, name)
+    : await chooseVersions(eco, name, row.version_range);
+  // too new to go out: a person reviews it, it doesn't sit waiting for the clock and approve itself later
+  if (chosen.cooling) return { stop: `${chosen.cooling}, a person has to review a version that is still cooling off` };
   if (chosen.stop || chosen.wait) return chosen;
   const killswitch = require('../policy/killswitch');
   const advisories = eco === 'oci' ? null : await advisoriesFor(eco, name, chosen.versions);
@@ -321,12 +350,14 @@ function rangeFor(eco, versions) {
   return versions.map((v) => (eco === 'pypi' ? `==${v}` : v)).join(' || ').slice(0, 128);
 }
 
-// what the approval allows. a request with no version came from a blocked install, which never says which version
-// it wanted, so pinning the newest can approve one the install can't use. with Scan before serving on every later
-// version is still scanned before it goes out, so the whole package is safe to allow. otherwise pin what was checked
-function approvalRange(row, versions) {
+// what the approval allows: always the versions that were checked, never the whole package. a request for any version
+// gets the current one, so the next release is asked for (and checked) on its own. an image's latest is pinned by digest
+async function approvalRange(row, versions) {
   const eco = row.ecosystem || 'npm';
-  if (!String(row.version_range || '').trim() && db.settings.getBool('malware_scan_before_serve')) return { range: '', whole: true };
+  if (eco === 'oci' && require('./version-pin').isAnyRange(row.version_range)) {
+    const pin = await require('./version-pin').currentPin('oci', row.package_name);
+    return { range: pin.range, whole: false };
+  }
   return { range: rangeFor(eco, versions), whole: false };
 }
 
@@ -347,7 +378,7 @@ async function review(row) {
   const fresh = await requests.byId(row.id);
   if (!fresh || fresh.status !== 'pending') return result;
   if (result.outcome === 'approve' && on()) {
-    const { range, whole } = approvalRange(fresh, facts.versions.map((v) => v.version));
+    const { range, whole } = await approvalRange(fresh, facts.versions.map((v) => v.version));
     const note = `auto approved: ${result.note}${whole ? ', any version (each one is scanned before it is served)' : `, pinned to ${range}`}`;
     const won = await require('./requests').claimAuto(ACTOR, fresh, note, range);
     if (won) {
@@ -419,8 +450,19 @@ function waitNote(ecosystem) {
   const how = ecosystem === 'oci' ? 'up to 30 minutes for a new image' : 'up to 10 minutes';
   return `It is being scanned for malware and checked for advisories now, which can take ${how}. ${on()
     ? 'If it comes back clean it is approved by itself, so try again later.'
-    : 'An approver will see the results next to your request.'}`;
+    : 'An approver will see the results next to your request.'}${coolingNote()}`;
 }
+
+// said wherever someone is told a request may approve itself, so a cool-off hold is never a surprise
+function coolingNote() {
+  const h = require('../policy/cooloff').hours();
+  if (!h || !on()) return '';
+  return ` A version published in the last ${h >= 48 ? `${Math.round(h / 24)} days` : `${h} hours`} is still cooling off and is never approved by itself, a person reviews it.`;
+}
+
+// what "any version" turns into, said to whoever asked for it
+const ANY_NOTE = 'Asking for any version approves one version, not all of them: the newest one with no known advisories. ' +
+  'A newer release has to be asked for again when you need it.';
 
 async function set(value, { reason, user, userId, ip }) {
   const want = Boolean(value);
@@ -458,7 +500,8 @@ async function tellAdmins(want, user, reason) {
 // the line an install refused for want of a rule gets while auto approve is on, so a pipeline log says to wait
 function refusalHint(ecosystem, reason) {
   if (!on() || !db.settings.getBool('auto_request') || !/^not on the whitelist/.test(String(reason || ''))) return '';
-  return ` It is being scanned and checked now, and approved by itself if it comes back clean. Try again in ${ecosystem === 'oci' ? 'up to 30 minutes' : 'up to 10 minutes'}.`;
+  return ` It is being scanned and checked now, and approved by itself if it comes back clean. Try again in ${ecosystem === 'oci' ? 'up to 30 minutes' : 'up to 10 minutes'}.` +
+    ` An approval allows one version, the newest with no known advisories, so pin that version if your install asked for any.${coolingNote()}`;
 }
 
-module.exports = { on, describe, decide, rangeFor, approvalRange, waitNote, refusalHint, set, sweep, nudge, review, RECHECK_MINUTES };
+module.exports = { ANY_NOTE, CLEAN_LOOK, on, describe, decide, chooseVersions, chooseCurrent, coolingNote, rangeFor, approvalRange, waitNote, refusalHint, set, sweep, nudge, review, RECHECK_MINUTES };

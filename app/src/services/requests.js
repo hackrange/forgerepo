@@ -14,6 +14,7 @@ const pypiupstream = require('../registry/pypi/upstream');
 const log = require('../logger');
 const requests = require('../db/repositories/requests');
 const rules = require('../db/repositories/rules');
+const versionPin = require('./version-pin');
 const { checkRange } = require('../policy/rulecheck');
 const { audit } = require('../lib/actor');
 const { fail } = require('../lib/errors');
@@ -346,13 +347,16 @@ async function claimAuto(actor, row, note, range) {
 
 async function approve(actor, row, { note, range, addRule }) {
   if (row.status !== 'pending') fail(400, 'that request is already settled');
+  // "any" turns into the version that's current now, before anything is claimed, so a refusal leaves it pending
+  if (addRule) {
+    const pin = await versionPin.pinFor(row, range);
+    if (pin.pinned) note = `${note ? `${note}, ` : ''}pinned to ${pin.said}, the current version when approved`;
+    range = pin.range;
+  }
   if (!(await claimApproval(actor, row, note, range, addRule))) fail(409, 'somebody settled that request a moment ago');
   if (addRule) policy.invalidate();
   await audit(actor, 'request.approve', row.package_name, note,
-    { before: { status: 'pending' }, after: { status: 'approved', allow_rule: addRule ? range || 'every version' : null } });
-  if (addRule && !range) {
-    require('../warm-latest').queueRules([{ ecosystem: row.ecosystem || 'npm', pattern: row.package_name, kind: 'allow', version_range: '', enabled: 1 }], actor);
-  }
+    { before: { status: 'pending' }, after: { status: 'approved', allow_rule: addRule ? range : null } });
 }
 
 // non-pending rows are left alone and reported - reopening a colleague's decisions is way worse.
@@ -368,8 +372,20 @@ async function approveMany(actor, ids, rows, { note, addRule }) {
       continue;
     }
     let won;
+    let range = row.version_range || '';
+    let rowNote = note;
     try {
-      won = await claimApproval(actor, row, note, row.version_range || '', addRule);
+      if (addRule) {
+        const pin = await versionPin.pinFor(row, range);
+        range = pin.range;
+        if (pin.pinned) rowNote = `${note ? `${note}, ` : ''}pinned to ${pin.said}, the current version when approved`;
+      }
+    } catch (err) {
+      skipped.push({ id: row.id, name: row.package_name, error: err.status ? err.message : 'could not find its current version' });
+      continue;
+    }
+    try {
+      won = await claimApproval(actor, row, rowNote, range, addRule);
     } catch (err) {
       log.error(`bulk approve failed on ${row.package_name}`, err.message);
       skipped.push({ id: row.id, name: row.package_name, error: 'could not approve it' });
@@ -382,14 +398,10 @@ async function approveMany(actor, ids, rows, { note, addRule }) {
     approved.push(row);
     // one audit line each
     await audit(actor, 'request.approve', row.package_name, note ? `${note} (in a batch)` : 'in a batch',
-      { before: { status: 'pending' }, after: { status: 'approved', allow_rule: addRule ? row.version_range || 'every version' : null } });
+      { before: { status: 'pending' }, after: { status: 'approved', allow_rule: addRule ? range : null } });
   }
 
-  if (addRule && approved.length) {
-    policy.invalidate();
-    require('../warm-latest').queueRules(approved.filter((r) => !r.version_range)
-      .map((r) => ({ ecosystem: r.ecosystem || 'npm', pattern: r.package_name, kind: 'allow', version_range: '', enabled: 1 })), actor);
-  }
+  if (addRule && approved.length) policy.invalidate();
   await audit(actor, 'request.approve.bulk', `${approved.length} request(s)`,
     approved.map((r) => r.package_name).slice(0, 50).join(', '));
   return { approved, skipped };
@@ -435,12 +447,21 @@ async function editMany(actor, ids, rows, { expiresTs, approveOthers, note }) {
       skipped.push({ id: row.id, name: row.package_name, error: `is ${row.status}, tick "also approve" to approve it with this expiry` });
       continue;
     }
-    const why = note || `approved request #${row.id}${expiresTs ? `, until ${when}` : ''}`;
+    let why = note || `approved request #${row.id}${expiresTs ? `, until ${when}` : ''}`;
+    let range;
+    try {
+      const pin = await versionPin.pinFor(row, row.version_range || '');
+      range = pin.range;
+      if (pin.pinned) why = `${why}, pinned to ${pin.said}, the current version when approved`;
+    } catch (err) {
+      skipped.push({ id: row.id, name: row.package_name, error: err.status ? err.message : 'could not find its current version' });
+      continue;
+    }
     try {
       const won = await db.transaction(async (q) => {
         if (!(await requests.reopenApproved({ id: row.id, note: why, resolvedBy: actor.id }, q))) return false;
         await rules.upsert(
-          { ecosystem: eco, pattern: row.package_name, kind: 'allow', version_range: row.version_range || '', note: why, expires_at: expiresTs, created_by: actor.name },
+          { ecosystem: eco, pattern: row.package_name, kind: 'allow', version_range: range, note: why, expires_at: expiresTs, created_by: actor.name },
           { note: 'values', enabled: 1, expires_at: 'values' },
           q
         );
@@ -449,7 +470,7 @@ async function editMany(actor, ids, rows, { expiresTs, approveOthers, note }) {
       if (!won) { skipped.push({ id: row.id, name: row.package_name, error: 'changed by somebody else a moment ago' }); continue; }
       approved.push(row);
       await audit(actor, 'request.approve', row.package_name, `${why} (from the edit box)`,
-        { before: { status: row.status }, after: { status: 'approved', allow_rule: row.version_range || 'every version', expires: when } });
+        { before: { status: row.status }, after: { status: 'approved', allow_rule: range, expires: when } });
     } catch (err) {
       log.error(`bulk edit approve failed on ${row.package_name}`, err.message);
       skipped.push({ id: row.id, name: row.package_name, error: 'could not approve it' });

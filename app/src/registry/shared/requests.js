@@ -41,7 +41,8 @@ async function openRequest(req, name, version, reason, options = {}) {
       who,
       token,
       ip: auth.clientIp(req),
-      reason: (learning ? `learning mode, pulled without an allow rule: ${reason}` : `install was blocked: ${reason}`).slice(0, 1000)
+      // served is for an install that went through but still wants a person, like nothing approved being clean
+      reason: (learning ? `learning mode, pulled without an allow rule: ${reason}` : options.served ? `install went through, but ${reason}` : `install was blocked: ${reason}`).slice(0, 1000)
     });
     require('../../services/auto-approve').nudge();
     const events = require('../../integrations/events');

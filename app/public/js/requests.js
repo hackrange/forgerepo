@@ -359,6 +359,13 @@ function expiresCell(r) {
 function statusCell(r) {
   var text = r.status + (r.hits > 1 ? ' (asked ' + r.hits + ' times)' : '');
   if (!r.auto_state) return text;
+  // a cool-off hold says so first, the long reason comes after
+  if (r.status === 'pending' && /cooling off/.test(r.auto_note || '')) {
+    return h('span', null, [text, h('div', { class: 'hint' }, [
+      h('span', { class: 'warn' }, ['needs a review: still cooling off']), ' ',
+      String(r.auto_note).replace(/, a person has to review a version that is still cooling off$/, '')
+    ])]);
+  }
   return h('span', null, [text, h('div', { class: 'hint' }, [
     h('span', { class: AUTO_CLASS[r.auto_state] || 'muted' }, [AUTO_WORDS[r.auto_state] || r.auto_state]),
     r.auto_note && r.auto_state !== 'approved' ? ': ' + r.auto_note : ''
@@ -443,11 +450,32 @@ function requestForm(types) {
   var name = h('input', { type: 'text', placeholder: 'package name' });
   var range = h('input', { type: 'text', placeholder: 'optional version range' });
   var why = h('input', { type: 'text', placeholder: 'what you need it for' });
+  // what "any" turns into, looked up as you type so nobody is surprised by the pin
+  var anyHint = h('p', { class: 'hint' }, ['']);
+  var asked = 0;
+  var ANY = ['', '*', 'x', 'x.x.x', 'latest', 'any', '>=0', '>=0.0.0'];
+  function previewAny() {
+    var n = name.value.trim();
+    var isAny = ANY.indexOf(range.value.trim().toLowerCase()) >= 0;
+    if (!n || !isAny) { anyHint.textContent = ''; return; }
+    var mine = ++asked;
+    anyHint.textContent = 'Looking up which version that would be...';
+    api('GET', '/requests/preview?ecosystem=' + encodeURIComponent(type ? type.value : 'npm') + '&name=' + encodeURIComponent(n))
+      .then(function (d) {
+        if (mine !== asked) return;
+        anyHint.textContent = d.note + ' ' + (d.version ? 'For ' + n + ' that is ' + d.said + '.' : d.said ? 'For ' + n + ' that is ' + d.said + '.' : d.why ? 'Right now: ' + d.why + '.' : '') +
+          (d.cooling ? ' ' + d.cooling : '');
+      })
+      .catch(function (e) { if (mine === asked) anyHint.textContent = e.message; });
+  }
+  name.addEventListener('change', previewAny);
+  range.addEventListener('change', previewAny);
   if (type) {
     type.addEventListener('change', function () {
       var eco = ecoHints(type.value);
       name.placeholder = type.value === 'npm' ? 'package name' : type.value === 'oci' ? 'image, like ' + eco.example : 'name, like ' + eco.example;
       range.placeholder = eco.range;
+      previewAny();
     });
   }
   return h('fieldset', null, [
@@ -457,6 +485,7 @@ function requestForm(types) {
       h('div', null, [h('label', null, ['Package']), name]),
       h('div', null, [h('label', null, ['Versions']), range])
     ]),
+    anyHint,
     h('label', null, ['Reason']), why,
     h('button', {
       onclick: function () {
