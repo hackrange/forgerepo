@@ -80,6 +80,35 @@ async function withIntel(findings) {
   return new Map(keys.map((k, n) => [k, done[n] || rows[n]]));
 }
 
+const bareVersion = (part) => part.trim().replace(/^(===?|==)\s*/, '');
+
+function sameVersion(ecosystem, a, b) {
+  if (a === b) return true;
+  if (ecosystem !== 'pypi') return false;
+  // 2.0 == 2.0.0 in pep 440, let pypi's own == decide
+  try {
+    return require('../ecosystems/pypi/version').satisfies(b, `==${a}`);
+  } catch (err) {
+    return false;
+  }
+}
+
+// a person approved this exact version with an end date (3.1.0, or one of 1.7.9 || 1.7.7). that's a yes to it
+// advisories and all, until the date. ranges and any still get steered to the clean ones, a deny still wins.
+// kills, malware and quarantine are checked elsewhere and never care about this
+async function approvedUntil(ecosystem, name, version, scope) {
+  const policy = require('./index');
+  const adapter = require('../ecosystems').adapter(ecosystem);
+  const verdict = await policy.checkVersion(name, version, adapter, scope);
+  if (!verdict || !verdict.allowed || !verdict.rule || verdict.rule.kind !== 'allow') return null;
+  //the winning rule may be an undated one, any dated approval naming it counts. soonest to end is the one shown
+  const names = (rule) => String(rule.version_range || '').split('||').map(bareVersion).filter(Boolean)
+    .some((v) => sameVersion(ecosystem, v, String(version)));
+  // a person has to have said yes, auto approve only ever okayed it clean
+  const dated = (await policy.allowRulesFor(name, adapter, scope)).filter((r) => r.expires_ts && r.created_by !== 'auto-approve' && names(r));
+  return dated.sort((a, b) => a.expires_ts - b.expires_ts)[0] || null;
+}
+
 // version -> reason for everything the security policy leaves out. empty when off
 // scope = the token's application and environment, so a waiver for dev never opens production
 async function securityExclusions(ecosystem, name, scope) {
@@ -89,6 +118,7 @@ async function securityExclusions(ecosystem, name, scope) {
   for (const [version, finding] of findings) {
     if (!tooRisky(finding)) continue;
     if (await waived(ecosystem, name, version, finding, scope)) continue;
+    if (await approvedUntil(ecosystem, name, version, scope)) continue;
     out.set(version, reasonFor(finding));
   }
   return out;
@@ -104,7 +134,8 @@ async function securityReason(ecosystem, name, version, scope) {
   if (!enabled()) return null;
   const finding = await withIntel(await audit.findingFor(name, version, ecosystem).catch(() => null));
   if (!tooRisky(finding)) return null;
-  return (await waived(ecosystem, name, version, finding, scope)) ? null : reasonFor(finding);
+  if (await waived(ecosystem, name, version, finding, scope)) return null;
+  return (await approvedUntil(ecosystem, name, version, scope)) ? null : reasonFor(finding);
 }
 
 function sessionOf(req) {
@@ -161,5 +192,5 @@ function noteSelected(req, ecosystem, name, version) {
 }
 
 module.exports = {
-  SEVERITIES, enabled, threshold, rank, tooRisky, why, withIntel, kevOn, epssBar, securityExclusions, securityReason, waived, record, noteSelected, group
+  SEVERITIES, enabled, threshold, rank, tooRisky, why, withIntel, kevOn, epssBar, securityExclusions, securityReason, waived, approvedUntil, record, noteSelected, group
 };

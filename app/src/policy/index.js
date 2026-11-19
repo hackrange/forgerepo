@@ -197,6 +197,15 @@ async function denyRulesFor(name, ecosystem, scope) {
     .map(({ rule }) => rule);
 }
 
+// every live allow for this name in this scope. safe resolution looks for a dated one naming the version
+async function allowRulesFor(name, ecosystem, scope) {
+  const eco = ecosystem || npm;
+  await reload();
+  return candidatesFor(eco, name)
+    .filter(({ rule, regex }) => rule.kind === 'allow' && applies(rule, scope) && regex.test(eco.ruleName(rule.kind, name)))
+    .map(({ rule }) => rule);
+}
+
 // package level check, runs before we bother fetching metadata
 async function checkPackage(name, ecosystem, scope) {
   const eco = ecosystem || npm;
@@ -380,6 +389,7 @@ module.exports = {
   checkVersionWith,
   proposedRule,
   denyRulesFor,
+  allowRulesFor,
   filterPackument,
   toRegex,
   specificity

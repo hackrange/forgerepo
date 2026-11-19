@@ -232,7 +232,7 @@ function removeEcosystems(types, q = db.query) {
 // and that changes the fingerprint so every remembered verdict goes with it
 function enabledForEngine() {
   return db.query(
-    `SELECT r.id, r.ecosystem, r.pattern, r.kind, r.version_range, r.application_id, r.environment_id, r.note, r.priority, r.enabled,
+    `SELECT r.id, r.ecosystem, r.pattern, r.kind, r.version_range, r.application_id, r.environment_id, r.note, r.priority, r.enabled, r.created_by,
             UNIX_TIMESTAMP(r.expires_at) AS expires_ts,
             a.name AS application_name, e.name AS environment_name
        FROM rules r

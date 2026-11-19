@@ -95,8 +95,11 @@ async function candidates(type, name, preview) {
     if (finding) {
       const sev = String(finding.severity || 'unknown').toLowerCase();
       const advisoryWaiver = resolution.tooRisky(finding) && on ? await waivers.advisoryWaived(type.id, name, version, finding, preview.scope) : null;
+      const approval = resolution.tooRisky(finding) && on && !advisoryWaiver ? await resolution.approvedUntil(type.id, name, version, preview.scope) : null;
       if (advisoryWaiver) {
         reasons.push(`${sev} advisory, waived until ${String(advisoryWaiver.expires_at).slice(0, 10)}`);
+      } else if (approval) {
+        reasons.push(`${sev} advisory, served anyway: rule ${approval.id} approves this version until ${new Date(approval.expires_ts * 1000).toISOString().slice(0, 10)}`);
       } else if (resolution.tooRisky(finding) && on) {
         if (status === 'approved') status = 'excluded';
         reasons.push(`${sev} advisory${{ kev: ', exploited in the wild (CISA KEV)', epss: ', likely to be exploited (EPSS)' }[resolution.why(finding)] || ''}, left out by safe resolution`);
