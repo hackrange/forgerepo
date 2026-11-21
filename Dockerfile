@@ -3,11 +3,11 @@
 # node from nodejs.org (ubuntu's lags on security fixes). sums are from a signature
 # checked SHASUMS256.txt, bump all three ARGs together
 FROM ubuntu:26.04@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d AS node
-ARG NODE_VERSION=22.23.2
-ARG NODE_SHA256_X64=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
-ARG NODE_SHA256_ARM64=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8
+ARG NODE_VERSION=26.13.1
+ARG NODE_SHA256_X64=5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
+ARG NODE_SHA256_ARM64=89e1853138db51e8b82d3e98ba9c0d3f2956a28e5e55ea1b7e12d25aae92d5dd
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils libatomic1 \
     && case "${TARGETARCH:-amd64}" in \
          amd64) arch=x64; sum="$NODE_SHA256_X64" ;; \
          arm64) arch=arm64; sum="$NODE_SHA256_ARM64" ;; \
@@ -36,6 +36,7 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
         mariadb-client \
         supervisor \
         tini \
+        libatomic1 \
         ca-certificates \
         gpg \
         gpg-agent \
