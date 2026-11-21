@@ -31,6 +31,9 @@
 # tagged npm-repo:previous so a bad upgrade can be undone.
 #
 #   --upgrade                       pull, rebuild, restart
+#   --prune                         with --upgrade: once it's healthy, drop the rollback image,
+#                                   untagged old images and the build cache. old layers keep old
+#                                   node binaries on disk and scanners flag them. no rollback after
 #
 # Building a second node against a database you already have, so both share
 # rules, users and audit. That node runs no database of its own:
@@ -58,6 +61,7 @@ CONTAINER_NAME="${CONTAINER_NAME:-npm-repo}"
 REPO_URL="${REPO_URL:-https://github.com/hackrange/forgerepo.git}"
 START_IT=1
 UPGRADE=0
+PRUNE=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -69,16 +73,21 @@ while [ $# -gt 0 ]; do
         --name)     CONTAINER_NAME="$2"; shift 2 ;;
         --no-start) START_IT=0; shift ;;
         --upgrade)  UPGRADE=1; shift ;;
+        --prune)    PRUNE=1; shift ;;
         --db-host)     DB_HOST="$2"; shift 2 ;;
         --db-port)     DB_PORT="$2"; shift 2 ;;
         --db-name)     DB_NAME="$2"; shift 2 ;;
         --db-user)     DB_USER="$2"; shift 2 ;;
         --db-password) DB_PASSWORD="$2"; shift 2 ;;
         --db-ssl)      DB_SSL="$2"; shift 2 ;;
-        -h|--help)  sed -n '3,44p' "$0"; exit 0 ;;
+        -h|--help)  sed -n '3,47p' "$0"; exit 0 ;;
         *)          echo "do not know what to do with: $1"; exit 1 ;;
     esac
 done
+
+if [ "$PRUNE" = "1" ] && [ "$UPGRADE" != "1" ]; then
+    echo "--prune only goes with --upgrade, a fresh install has nothing old to clear"; exit 1
+fi
 
 # new installs go in forgerepo. one from before the rename stays in npm-repo: docker names the data volume
 # after the folder, so moving it would bring the app up on a new, empty volume
@@ -397,13 +406,20 @@ upgrade() {
 
     ok "the schema was brought up to date on boot, there is no migration to run"
 
+    # only once it's healthy, a failed upgrade still needs its rollback
+    [ "$PRUNE" = "1" ] && prune_old "$prev_name" "$new_image"
+
     cat <<UPGRADED
 
 $(printf '\033[1;32m')ForgeRepo is up to date and running.$(printf '\033[0m')
 
   Directory   ${dir}
   Version     $([ -d .git ] && git log -1 --format='%h %s' | cut -c1-70 || echo 'not a git checkout')
-  Rollback    $(rollback_advice)
+  Rollback    $(if [ "$PRUNE" = "1" ] && [ "$db_move" != "1" ]; then
+    echo "no rollback image, --prune took it. go back with: git checkout ${before:-<old commit>} && docker compose up -d --build"
+else
+    rollback_advice
+fi)
 
 $(if [ "$db_move" = "1" ]; then
     echo "  The database was upgraded from MariaDB $data_ver to $new_db. The backup taken"
@@ -415,6 +431,26 @@ fi)
   Give the portal a hard refresh, the old page is cached for five minutes.
 
 UPGRADED
+}
+
+# every rebuild leaves the old image behind untagged, old node and all, and rapid7 & co find it
+# in containerd's snapshots. images + build cache only, volumes are never touched
+prune_old() {
+    local prev="$1" keep="$2" freed
+    say "Pruning what the old images left behind"
+    if docker image inspect "$prev" >/dev/null 2>&1 \
+        && [ "$(docker image inspect -f '{{.Id}}' "$prev")" != "$keep" ]; then
+        docker image rm "$prev" >/dev/null 2>&1 \
+            && ok "removed the rollback image $prev" \
+            || warn "could not remove $prev, something still uses it"
+    fi
+    freed=$(docker image prune -f 2>/dev/null | tail -1 | sed "s/.*:[[:space:]]*//") \
+        && ok "untagged images gone, ${freed:-0B} freed" \
+        || warn "could not prune untagged images"
+    # this one is box wide, other projects rebuild from scratch next time. small price
+    freed=$(docker builder prune -af 2>/dev/null | tail -1 | sed "s/.*:[[:space:]]*//") \
+        && ok "build cache cleared, ${freed:-0B} freed" \
+        || warn "could not clear the build cache"
 }
 
 latest_db_backup() {

@@ -65,6 +65,7 @@ Options, all optional:
 | `--name npm-repo` | container name, see "Running more than one" before putting two on one box |
 | `--no-start` | set it all up but do not start it |
 | `--upgrade` | pull the latest code, rebuild the image, restart |
+| `--prune` | with `--upgrade`, once the new one is healthy: remove the rollback image, old untagged images and the build cache, so scanners stop finding old Node binaries on disk. Volumes are never touched. There is no rollback image afterward |
 
 Tested on Ubuntu 22.04 LTS and 24.04 LTS. Debian and the RHEL family use the
 same steps and should work.
